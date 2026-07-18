@@ -1,0 +1,90 @@
+/* 五大陸テーマパーク物語 — GB風スキン（Life Quest P5から流用・縮約）。
+   GB系4階調＋灯り色。二重枠ウィンドウ・カーソル▶・DotGothic16。 */
+
+:root {
+  --gb-paper: #e8f0d8;
+  --gb-light: #a8c058;
+  --gb-mid:   #4e7a3c;
+  --gb-ink:   #1a2c14;
+  --lamp:     #ffe86b;
+  --frame: var(--gb-ink);
+  --pixel: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { --gb-paper: #0f1a0b; --gb-light: #24361a; --gb-mid: #6f9a4c; --gb-ink: #cfe0a8; }
+}
+:root[data-theme='dark'] { --gb-paper: #0f1a0b; --gb-light: #24361a; --gb-mid: #6f9a4c; --gb-ink: #cfe0a8; }
+:root[data-theme='light'] { --gb-paper: #e8f0d8; --gb-light: #a8c058; --gb-mid: #4e7a3c; --gb-ink: #1a2c14; }
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--gb-paper);
+  color: var(--gb-ink);
+  font-family: 'DotGothic16', 'Courier New', monospace;
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: none;
+}
+
+canvas, .pixel { image-rendering: pixelated; }
+
+.lq-window {
+  position: relative;
+  background: var(--gb-paper);
+  border: var(--pixel) solid var(--frame);
+  border-radius: 2px;
+  padding: 12px 14px;
+  margin: 10px 0;
+  box-shadow: 0 0 0 var(--pixel) var(--gb-paper), 0 0 0 calc(var(--pixel) * 2) var(--frame);
+}
+
+.lq-btn {
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--gb-ink);
+  background: var(--gb-paper);
+  border: var(--pixel) solid var(--frame);
+  border-radius: 2px;
+  padding: 6px 12px 6px 22px;
+  margin: 3px 4px 3px 0;
+  cursor: pointer;
+  position: relative;
+  text-align: left;
+}
+.lq-btn::before {
+  content: '';
+  position: absolute; left: 8px; top: 50%;
+  width: 0; height: 0; transform: translateY(-50%);
+  border-left: 7px solid var(--gb-ink);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  opacity: 0;
+}
+.lq-btn:hover:not(:disabled)::before { opacity: 1; }
+.lq-btn:hover:not(:disabled) { background: var(--gb-light); }
+.lq-btn:disabled { opacity: 0.45; cursor: default; }
+
+.lq-app { max-width: 860px; margin: 0 auto; padding: 8px 10px 40px; }
+.lq-muted { color: var(--gb-mid); font-size: 13px; }
+
+/* 会話ウィンドウ（画面下・ポケモン文法） */
+.dialog-box {
+  background: var(--gb-paper);
+  border: var(--pixel) solid var(--frame);
+  border-radius: 2px;
+  box-shadow: 0 0 0 var(--pixel) var(--gb-paper), 0 0 0 calc(var(--pixel) * 2) var(--frame);
+  padding: 10px 14px;
+  min-height: 84px;
+  margin-top: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.dialog-box .speaker { color: var(--gb-mid); font-size: 13px; }
+.dialog-box .next-arrow {
+  float: right;
+  animation: bounce 0.7s steps(2) infinite;
+}
+@keyframes bounce { 0% { transform: translateY(0); } 100% { transform: translateY(3px); } }
