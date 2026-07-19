@@ -15,6 +15,11 @@ export interface G {
   flags: string[];
   /** 開園済みの大陸（アジア/ヨーロッパ/アメリカ/オセアニア/アフリカ） */
   大陸: string[];
+  /** 隠し軸（v0.2）：選択が積み上がりエンディングを分ける。HUDには出さない */
+  信念: number;
+  実利: number;
+  /** 到達したエンディング名（stage99で確定） */
+  ending?: string;
 }
 
 export type Effect = (g: G) => void;
@@ -24,22 +29,30 @@ export type Step =
   | { speaker?: string; text: string; effect?: Effect }
   | { choices: { label: string; steps?: Step[]; effect?: Effect }[] };
 
+/** 建物の描画スタイル（v0.2）。屋根色・窓・付帯物が変わる */
+export type BuildingStyle =
+  | 'house' | 'cafe' | 'gallery' | 'office' | 'tower' | 'station' | 'shrine'
+  | 'school' | 'townhall' | 'workshop' | 'warehouse' | 'clocktower' | 'port' | 'park';
+
 export interface Building {
   id: string;
   名前: string;
   アイコン: string;
   x: number; y: number; w: number; h: number;
   door: { x: number; y: number };
-  /** flagsやstageで名前・アイコンを差し替える（廃校→工事中→パーク） */
-  変化?: (g: G) => { 名前: string; アイコン: string } | null;
+  style: BuildingStyle;
+  /** flagsやstageで名前・アイコン・スタイルを差し替える（廃校→工事中→パーク） */
+  変化?: (g: G) => { 名前: string; アイコン: string; style?: BuildingStyle } | null;
 }
+
+/** NPCスプライトの配色（髪/肌/服/ズボン）。省略はデフォルト */
+export interface NpcPalette { H?: string; S?: string; C?: string; P?: string }
 
 export interface NpcDef {
   id: string;
   名前: string;
   x: number; y: number;
-  記号: string;      // 1文字（例: 師, 相, 地）
-  色: string;
+  palette: NpcPalette;
   条件?: (g: G) => boolean;
 }
 

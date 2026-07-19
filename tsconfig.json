@@ -10,6 +10,7 @@
     "noUnusedParameters": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "types": ["vite/client"],
     "resolveJsonModule": true,
     "isolatedModules": true
   },

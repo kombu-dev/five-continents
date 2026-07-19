@@ -1,28 +1,29 @@
-// ゲーム画面：タイル描画・歩行・会話ウィンドウ（ポケモン文法）・最小HUD・自動セーブ。
+// ゲーム画面 v0.2：カメラ追従の広大マップ・人型スプライト・詳細建物・BGM/SE。
+// 会話UIとHUDはDOM、フィールドはrequestAnimationFrameで毎フレームcanvas描画。
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { G, Step } from '../game/types';
 import { MAPS, walkable } from '../game/maps';
 import { GOALS, goalOf, sceneFor } from '../game/story';
+import { drawTiles, drawBuilding, TILE } from '../game/render';
+import { drawSprite, HERO_PALETTE, type Facing, type SpritePalette } from '../game/sprites';
+import { bgm, isMuted, se, setMuted, unlockAudio } from '../game/audio';
 
-const TILE = 30;
-const SAVE_KEY = 'five-continents-save';
-
-const COL = {
-  grass: '#a8c058', grass2: '#9cb84e', path: '#d8c9a0', tree: '#3c6a3c',
-  sea: '#39648f', route: '#7fa8c8', flower: '#e8b0c8',
-  wall: '#c9a06a', roof: '#8a5a3c', door: '#4e2e18',
-  ink: '#1a2c14', player: '#2f6fb0',
-};
+const SAVE_KEY = 'five-continents-save-v2';
+const VIEW_W = 20;
+const VIEW_H = 13;
 
 function newGame(): G {
-  return { map: 'osaka', x: 14, y: 9, 資金: 300, 評判: 0, 仲間: [], stage: 0, flags: [], 大陸: [] };
+  return {
+    map: 'osaka', x: 5, y: 12, 資金: 300, 評判: 0, 仲間: [], stage: 0, flags: [], 大陸: [],
+    信念: 0, 実利: 0,
+  };
 }
 
 function load(): G {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) return JSON.parse(raw) as G;
+    if (raw) return { ...newGame(), ...(JSON.parse(raw) as Partial<G>) };
   } catch { /* 壊れたセーブは捨てる */ }
   return newGame();
 }
@@ -46,12 +47,39 @@ export function GameScreen() {
   const [g, setG] = useState<G>(load);
   const [scene, setScene] = useState<Step[] | null>(null);
   const [idx, setIdx] = useState(0);
+  const [muted, setMutedState] = useState(isMuted());
   const appliedRef = useRef<Set<number>>(new Set());
+  const facingRef = useRef<Facing>('down');
+  const stepFrameRef = useRef(0);
 
   const map = MAPS[g.map] ?? MAPS.osaka;
 
   // 自動セーブ
   useEffect(() => { localStorage.setItem(SAVE_KEY, JSON.stringify(g)); }, [g]);
+
+  // BGM：マップごとに切替
+  useEffect(() => {
+    if (!muted) bgm.restart(g.map);
+    return () => { /* 次のstartが止める */ };
+  }, [g.map, muted]);
+
+  // 開園ファンファーレ（大陸が増えた瞬間）
+  const prevContinents = useRef(g.大陸.length);
+  useEffect(() => {
+    if (g.大陸.length > prevContinents.current) se.fanfare();
+    prevContinents.current = g.大陸.length;
+  }, [g.大陸.length]);
+
+  // オーディオ解錠（最初の操作で）
+  useEffect(() => {
+    const unlock = () => { unlockAudio(); if (!isMuted()) bgm.restart(gRef.current.map); };
+    window.addEventListener('keydown', unlock, { once: true });
+    window.addEventListener('pointerdown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('pointerdown', unlock);
+    };
+  }, []);
 
   const apply = useCallback((fn?: (s: G) => void) => {
     if (!fn) return;
@@ -69,7 +97,8 @@ export function GameScreen() {
   const advance = useCallback(() => {
     if (!scene) return;
     const cur = scene[idx];
-    if (cur && 'choices' in cur) return; // 選択待ちはクリックで
+    if (cur && 'choices' in cur) return;
+    se.blip();
     const next = idx + 1;
     if (next >= scene.length) { setScene(null); return; }
     const step = scene[next];
@@ -84,6 +113,7 @@ export function GameScreen() {
     if (!scene) return;
     const cur = scene[idx];
     if (!cur || !('choices' in cur)) return;
+    se.coin();
     const c = cur.choices[ci];
     if (c.effect) apply(c.effect);
     const rest = scene.slice(idx + 1);
@@ -96,34 +126,34 @@ export function GameScreen() {
     if (first && 'text' in first && first.effect) { appliedRef.current.add(0); apply(first.effect); }
   }, [scene, idx, apply]);
 
-  // 調べる：ポータル → 建物ドア → 隣接NPC
   const interact = useCallback(() => {
     if (scene) { advance(); return; }
     const portal = map.portals.find((p) => p.x === g.x && p.y === g.y);
     if (portal) {
       if (portal.条件 && !portal.条件(g)) {
+        se.buzz();
         openScene([{ text: portal.拒否 ?? '（まだ行けない）' }]);
         return;
       }
+      se.door();
       setG((prev) => ({ ...prev, map: portal.to, x: portal.tx, y: portal.ty }));
       return;
     }
     const b = map.buildings.find((bb) => bb.door.x === g.x && bb.door.y === g.y);
     if (b) {
       const s = sceneFor(b.id, g);
-      if (s) openScene(s);
-      else openScene([{ text: `${b.名前}。（今は特に用がない）` }]);
+      se.door();
+      openScene(s ?? [{ text: `${b.変化?.(g)?.名前 ?? b.名前}。（今は特に用がない）` }]);
       return;
     }
     const npc = map.npcs.find((n) => (!n.条件 || n.条件(g)) && Math.abs(n.x - g.x) + Math.abs(n.y - g.y) <= 1);
     if (npc) {
       const s = sceneFor(npc.id, g);
-      if (s) openScene(s);
+      if (s) { se.blip(); openScene(s); }
     }
   }, [scene, advance, map, g, openScene]);
 
-  // キー入力。リスナーは一度だけ登録し、最新の状態はrefで読む
-  // （毎レンダー再登録すると、登録し直しの隙間で連打キーを取りこぼす）
+  // キー入力（リスナーは一度だけ・最新はref）
   const interactRef = useRef(interact);
   interactRef.current = interact;
   const sceneRef = useRef(scene);
@@ -131,7 +161,6 @@ export function GameScreen() {
   const gRef = useRef(g);
   gRef.current = g;
 
-  // devデバッグフック（自動テスト用）：状態の読み取りとテレポート
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     (window as unknown as { __lq?: unknown }).__lq = {
@@ -139,94 +168,71 @@ export function GameScreen() {
       set: (patch: Partial<G>) => setG((p) => ({ ...p, ...patch })),
     };
   }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); interactRef.current(); return; }
       if (sceneRef.current) return;
-      const mv: Record<string, [number, number]> = {
-        ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1],
-        ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0],
+      const mv: Record<string, [number, number, Facing]> = {
+        ArrowUp: [0, -1, 'up'], w: [0, -1, 'up'],
+        ArrowDown: [0, 1, 'down'], s: [0, 1, 'down'],
+        ArrowLeft: [-1, 0, 'left'], a: [-1, 0, 'left'],
+        ArrowRight: [1, 0, 'right'], d: [1, 0, 'right'],
       };
       const d = mv[e.key];
       if (!d) return;
       e.preventDefault();
+      facingRef.current = d[2];
       setG((prev) => {
         const m = MAPS[prev.map];
         const nx = prev.x + d[0], ny = prev.y + d[1];
-        return walkable(m, nx, ny) ? { ...prev, x: nx, y: ny } : prev;
+        if (!walkable(m, nx, ny)) return prev;
+        stepFrameRef.current = (stepFrameRef.current + 1) % 2;
+        return { ...prev, x: nx, y: ny };
       });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // 描画
+  // 描画：状態変化で即1フレーム＋rAFでアニメ（タブ非表示等でrAFが止まっても画面は最新に保つ）
+  const drawNowRef = useRef<() => void>(() => {});
   useEffect(() => {
-    const cv = canvasRef.current; if (!cv) return;
-    const ctx = cv.getContext('2d'); if (!ctx) return;
-    const W = map.grid[0].length, H = map.grid.length;
-    ctx.clearRect(0, 0, cv.width, cv.height);
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const t = map.grid[y][x];
-        let c = (x + y) % 2 === 0 ? COL.grass : COL.grass2;
-        if (t === '#') c = COL.tree;
-        else if (t === '~') c = COL.sea;
-        else if (t === '=') c = g.map === 'world' ? COL.route : COL.path;
-        ctx.fillStyle = c;
-        ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-        if (t === 'o') {
-          ctx.fillStyle = COL.flower;
-          ctx.fillRect(x * TILE + 11, y * TILE + 11, 8, 8);
+    const draw = (time: number) => {
+      const cv = canvasRef.current;
+      const ctx = cv?.getContext('2d');
+      const gg = gRef.current;
+      const m = MAPS[gg.map] ?? MAPS.osaka;
+      if (cv && ctx) {
+        const mw = m.grid[0].length, mh = m.grid.length;
+        const camX = Math.max(0, Math.min(gg.x - Math.floor(VIEW_W / 2), mw - VIEW_W));
+        const camY = Math.max(0, Math.min(gg.y - Math.floor(VIEW_H / 2), mh - VIEW_H));
+        drawTiles(ctx, m, camX, camY, VIEW_W, VIEW_H, time);
+        for (const b of m.buildings) drawBuilding(ctx, b, gg, camX, camY, time);
+        for (let i = 0; i < m.npcs.length; i++) {
+          const n = m.npcs[i];
+          if (n.条件 && !n.条件(gg)) continue;
+          const bob = Math.sin(time / 420 + i * 1.7) * 1.5;
+          const pal: SpritePalette = { ...HERO_PALETTE, ...n.palette };
+          drawSprite(ctx, 'down', 0, pal, (n.x - camX) * TILE, (n.y - camY) * TILE + bob, TILE);
         }
-        if (t === '~') {
-          ctx.fillStyle = '#4a76a3';
-          if ((x * 7 + y * 13) % 5 === 0) ctx.fillRect(x * TILE + 6, y * TILE + 14, 12, 2);
-        }
+        drawSprite(ctx, facingRef.current, stepFrameRef.current, HERO_PALETTE,
+          (gg.x - camX) * TILE, (gg.y - camY) * TILE - 3, TILE);
       }
-    }
-    for (const b of map.buildings) {
-      const v = b.変化?.(g);
-      const 名前 = v?.名前 ?? b.名前;
-      const アイコン = v?.アイコン ?? b.アイコン;
-      ctx.fillStyle = COL.wall;
-      ctx.fillRect(b.x * TILE, b.y * TILE, b.w * TILE, b.h * TILE);
-      ctx.fillStyle = COL.roof;
-      ctx.fillRect(b.x * TILE, b.y * TILE, b.w * TILE, TILE * 0.65);
-      ctx.strokeStyle = COL.ink; ctx.lineWidth = 2;
-      ctx.strokeRect(b.x * TILE + 1, b.y * TILE + 1, b.w * TILE - 2, b.h * TILE - 2);
-      ctx.fillStyle = COL.ink;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = '15px sans-serif';
-      ctx.fillText(アイコン, (b.x + b.w / 2) * TILE, (b.y + 0.32) * TILE + 1);
-      ctx.font = '10px DotGothic16, monospace';
-      ctx.fillText(名前, (b.x + b.w / 2) * TILE, (b.y + b.h - 0.32) * TILE);
-      ctx.fillStyle = COL.door;
-      ctx.fillRect((b.door.x + 0.25) * TILE, (b.door.y + 0.12) * TILE, TILE * 0.5, TILE * 0.76);
-    }
-    for (const n of map.npcs) {
-      if (n.条件 && !n.条件(g)) continue;
-      ctx.fillStyle = COL.ink;
-      ctx.beginPath(); ctx.arc((n.x + 0.5) * TILE, (n.y + 0.5) * TILE, TILE * 0.38, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = n.色;
-      ctx.beginPath(); ctx.arc((n.x + 0.5) * TILE, (n.y + 0.5) * TILE, TILE * 0.3, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = '12px DotGothic16, monospace';
-      ctx.fillText(n.記号, (n.x + 0.5) * TILE, (n.y + 0.52) * TILE);
-    }
-    // プレイヤー
-    ctx.fillStyle = COL.ink;
-    ctx.fillRect(g.x * TILE + 5, g.y * TILE + 5, TILE - 10, TILE - 10);
-    ctx.fillStyle = COL.player;
-    ctx.fillRect(g.x * TILE + 7, g.y * TILE + 7, TILE - 14, TILE - 14);
-  }, [g, map, scene]);
+    };
+    drawNowRef.current = () => draw(performance.now());
+    let raf = 0;
+    const loop = (t: number) => { draw(t); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  useEffect(() => { drawNowRef.current(); }, [g, scene]);
 
   const onPortalOrDoor =
     map.portals.some((p) => p.x === g.x && p.y === g.y) ||
     map.buildings.some((b) => b.door.x === g.x && b.door.y === g.y);
 
   const cur = scene?.[idx];
-  const W = map.grid[0].length, H = map.grid.length;
   const progress = `${g.大陸.length}/5`;
 
   return (
@@ -238,6 +244,16 @@ export function GameScreen() {
           <span>資金 {fmtMoney(g.資金)}</span>
           <span>評判「{fameWord(g.評判)}」</span>
           <span>仲間 {g.仲間.length ? g.仲間.join('・') : 'なし'}</span>
+          <button
+            className="lq-btn" style={{ padding: '2px 8px 2px 18px', marginLeft: 'auto' }}
+            onClick={() => {
+              const m = !muted;
+              setMuted(m); setMutedState(m);
+              if (!m) { unlockAudio(); bgm.restart(gRef.current.map); }
+            }}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
         </div>
         <div className="lq-muted" style={{ marginTop: 2 }}>
           ▶ {goalOf(g)}　<span style={{ opacity: 0.7 }}>（{map.名前}）</span>
@@ -248,8 +264,8 @@ export function GameScreen() {
       <div style={{ overflowX: 'auto' }}>
         <canvas
           ref={canvasRef}
-          width={W * TILE}
-          height={H * TILE}
+          width={VIEW_W * TILE}
+          height={VIEW_H * TILE}
           className="pixel"
           style={{ border: '3px solid var(--frame)', maxWidth: '100%', display: 'block', margin: '0 auto' }}
           onClick={interact}
@@ -291,7 +307,9 @@ export function GameScreen() {
         >
           はじめから
         </button>
-        <span className="lq-muted" style={{ marginLeft: 10 }}>全{GOALS.length}章＋終章／自動セーブ</span>
+        <span className="lq-muted" style={{ marginLeft: 10 }}>
+          全{GOALS.length}章＋世界航路＋終章（エンディング5種）／自動セーブ
+        </span>
       </div>
     </div>
   );

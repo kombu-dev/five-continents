@@ -1,1 +1,1 @@
-{"root":["./src/main.tsx","./src/game/maps.ts","./src/game/story.ts","./src/game/types.ts","./src/ui/app.tsx","./src/ui/gamescreen.tsx"],"version":"5.9.3"}
+{"root":["./src/main.tsx","./src/game/audio.ts","./src/game/maps.ts","./src/game/render.ts","./src/game/sprites.ts","./src/game/story.ts","./src/game/types.ts","./src/ui/app.tsx","./src/ui/gamescreen.tsx"],"version":"5.9.3"}
