@@ -1,22 +1,25 @@
-// ゲーム画面 v0.2：カメラ追従の広大マップ・人型スプライト・詳細建物・BGM/SE。
-// 会話UIとHUDはDOM、フィールドはrequestAnimationFrameで毎フレームcanvas描画。
+// ゲーム画面 v0.3：カメラ追従の広大マップ・人型スプライト・建物内部・カットイン演出・BGM/SE。
+// 会話UIとHUDはDOM、フィールド/内部/vistaはrequestAnimationFrameで毎フレームcanvas描画。
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { G, Step } from '../game/types';
+import type { Building, G, Step } from '../game/types';
 import { MAPS, walkable } from '../game/maps';
 import { GOALS, goalOf, sceneFor } from '../game/story';
-import { drawTiles, drawBuilding, TILE } from '../game/render';
+import { drawTiles, drawBuilding, drawInterior, drawVista, TILE } from '../game/render';
 import { drawSprite, HERO_PALETTE, type Facing, type SpritePalette } from '../game/sprites';
+import { interiorWalkable } from '../game/interiors';
 import { bgm, isMuted, se, setMuted, unlockAudio } from '../game/audio';
 
-const SAVE_KEY = 'five-continents-save-v2';
+const SAVE_KEY = 'five-continents-save-v3';
 const VIEW_W = 20;
 const VIEW_H = 13;
+const CANVAS_W = VIEW_W * TILE;
+const CANVAS_H = VIEW_H * TILE;
 
 function newGame(): G {
   return {
     map: 'osaka', x: 5, y: 12, 資金: 300, 評判: 0, 仲間: [], stage: 0, flags: [], 大陸: [],
-    信念: 0, 実利: 0,
+    信念: 0, 実利: 0, パーク: {},
   };
 }
 
@@ -42,6 +45,11 @@ function fameWord(f: number): string {
   return '無名';
 }
 
+function stepVista(step: Step | undefined): string | undefined {
+  if (!step) return undefined;
+  return step.vista;
+}
+
 export function GameScreen() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [g, setG] = useState<G>(load);
@@ -53,14 +61,17 @@ export function GameScreen() {
   const stepFrameRef = useRef(0);
 
   const map = MAPS[g.map] ?? MAPS.osaka;
+  const insideBuilding: Building | undefined = g.inside
+    ? map.buildings.find((b) => b.id === g.inside!.id)
+    : undefined;
+  const interior = insideBuilding?.interior?.(g);
 
   // 自動セーブ
   useEffect(() => { localStorage.setItem(SAVE_KEY, JSON.stringify(g)); }, [g]);
 
-  // BGM：マップごとに切替
+  // BGM：マップごとに切替（屋内では少し落ち着かせたいが、単純化のため同じ曲を継続）
   useEffect(() => {
     if (!muted) bgm.restart(g.map);
-    return () => { /* 次のstartが止める */ };
   }, [g.map, muted]);
 
   // 開園ファンファーレ（大陸が増えた瞬間）
@@ -69,6 +80,9 @@ export function GameScreen() {
     if (g.大陸.length > prevContinents.current) se.fanfare();
     prevContinents.current = g.大陸.length;
   }, [g.大陸.length]);
+
+  const gRef = useRef(g);
+  gRef.current = g;
 
   // オーディオ解錠（最初の操作で）
   useEffect(() => {
@@ -128,9 +142,30 @@ export function GameScreen() {
 
   const interact = useCallback(() => {
     if (scene) { advance(); return; }
-    const portal = map.portals.find((p) => p.x === g.x && p.y === g.y);
+    const gg = gRef.current;
+
+    // ---- 屋内 ----
+    if (gg.inside && insideBuilding && interior) {
+      if (interior.attendant) {
+        const dx = Math.abs(gg.inside.x - interior.attendant.x);
+        const dy = Math.abs(gg.inside.y - interior.attendant.y);
+        if (dx + dy <= 1) {
+          const s = sceneFor(interior.attendant.id, gg);
+          if (s) { se.blip(); openScene(s); }
+          return;
+        }
+      }
+      if (gg.inside.x === interior.exit.x && gg.inside.y === interior.exit.y) {
+        se.door();
+        setG((prev) => ({ ...prev, inside: undefined }));
+      }
+      return;
+    }
+
+    // ---- 屋外：ポータル ----
+    const portal = map.portals.find((p) => p.x === gg.x && p.y === gg.y);
     if (portal) {
-      if (portal.条件 && !portal.条件(g)) {
+      if (portal.条件 && !portal.条件(gg)) {
         se.buzz();
         openScene([{ text: portal.拒否 ?? '（まだ行けない）' }]);
         return;
@@ -139,27 +174,35 @@ export function GameScreen() {
       setG((prev) => ({ ...prev, map: portal.to, x: portal.tx, y: portal.ty }));
       return;
     }
-    const b = map.buildings.find((bb) => bb.door.x === g.x && bb.door.y === g.y);
+
+    // ---- 屋外：建物のドア ----
+    const b = map.buildings.find((bb) => bb.door.x === gg.x && bb.door.y === gg.y);
     if (b) {
-      const s = sceneFor(b.id, g);
+      if (b.enterable && b.interior) {
+        const room = b.interior(gg);
+        se.door();
+        setG((prev) => ({ ...prev, inside: { id: b.id, x: room.start.x, y: room.start.y } }));
+        return;
+      }
+      const s = sceneFor(b.id, gg);
       se.door();
-      openScene(s ?? [{ text: `${b.変化?.(g)?.名前 ?? b.名前}。（今は特に用がない）` }]);
+      openScene(s ?? [{ text: `${b.変化?.(gg)?.名前 ?? b.名前}。（今は特に用がない）` }]);
       return;
     }
-    const npc = map.npcs.find((n) => (!n.条件 || n.条件(g)) && Math.abs(n.x - g.x) + Math.abs(n.y - g.y) <= 1);
+
+    // ---- 屋外：NPC ----
+    const npc = map.npcs.find((n) => (!n.条件 || n.条件(gg)) && Math.abs(n.x - gg.x) + Math.abs(n.y - gg.y) <= 1);
     if (npc) {
-      const s = sceneFor(npc.id, g);
+      const s = sceneFor(npc.id, gg);
       if (s) { se.blip(); openScene(s); }
     }
-  }, [scene, advance, map, g, openScene]);
+  }, [scene, advance, map, insideBuilding, interior, openScene]);
 
   // キー入力（リスナーは一度だけ・最新はref）
   const interactRef = useRef(interact);
   interactRef.current = interact;
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
-  const gRef = useRef(g);
-  gRef.current = g;
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
@@ -183,10 +226,28 @@ export function GameScreen() {
       if (!d) return;
       e.preventDefault();
       facingRef.current = d[2];
+
       setG((prev) => {
+        // ---- 屋内の移動 ----
+        if (prev.inside) {
+          const b = MAPS[prev.map]?.buildings.find((bb) => bb.id === prev.inside!.id);
+          const room = b?.interior?.(prev);
+          if (!b || !room) return prev;
+          const nx = prev.inside.x + d[0], ny = prev.inside.y + d[1];
+          if (!interiorWalkable(room, nx, ny)) return prev;
+          stepFrameRef.current = (stepFrameRef.current + 1) % 2;
+          // 出口タイルを踏んだら自動で外へ（ポケモンのドア文法）
+          if (nx === room.exit.x && ny === room.exit.y) {
+            return { ...prev, inside: undefined };
+          }
+          return { ...prev, inside: { id: prev.inside.id, x: nx, y: ny } };
+        }
+        // ---- 屋外の移動（NPC衝突判定つき） ----
         const m = MAPS[prev.map];
         const nx = prev.x + d[0], ny = prev.y + d[1];
         if (!walkable(m, nx, ny)) return prev;
+        const blockedByNpc = m.npcs.some((n) => (!n.条件 || n.条件(prev)) && n.x === nx && n.y === ny);
+        if (blockedByNpc) return prev;
         stepFrameRef.current = (stepFrameRef.current + 1) % 2;
         return { ...prev, x: nx, y: ny };
       });
@@ -195,45 +256,74 @@ export function GameScreen() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // 描画：状態変化で即1フレーム＋rAFでアニメ（タブ非表示等でrAFが止まっても画面は最新に保つ）
+  const cur = scene?.[idx];
+  const activeVista = stepVista(cur);
+
+  // 描画：状態変化で即1フレーム＋rAFでアニメ
   const drawNowRef = useRef<() => void>(() => {});
   useEffect(() => {
     const draw = (time: number) => {
       const cv = canvasRef.current;
       const ctx = cv?.getContext('2d');
+      if (!cv || !ctx) return;
       const gg = gRef.current;
-      const m = MAPS[gg.map] ?? MAPS.osaka;
-      if (cv && ctx) {
-        const mw = m.grid[0].length, mh = m.grid.length;
-        const camX = Math.max(0, Math.min(gg.x - Math.floor(VIEW_W / 2), mw - VIEW_W));
-        const camY = Math.max(0, Math.min(gg.y - Math.floor(VIEW_H / 2), mh - VIEW_H));
-        drawTiles(ctx, m, camX, camY, VIEW_W, VIEW_H, time);
-        for (const b of m.buildings) drawBuilding(ctx, b, gg, camX, camY, time);
-        for (let i = 0; i < m.npcs.length; i++) {
-          const n = m.npcs[i];
-          if (n.条件 && !n.条件(gg)) continue;
-          const bob = Math.sin(time / 420 + i * 1.7) * 1.5;
-          const pal: SpritePalette = { ...HERO_PALETTE, ...n.palette };
-          drawSprite(ctx, 'down', 0, pal, (n.x - camX) * TILE, (n.y - camY) * TILE + bob, TILE);
-        }
-        drawSprite(ctx, facingRef.current, stepFrameRef.current, HERO_PALETTE,
-          (gg.x - camX) * TILE, (gg.y - camY) * TILE - 3, TILE);
+      const sc = sceneRef.current;
+      const curStep = sc ? sc[idx] : undefined; // idxはeffect依存に含めているので最新
+      const vista = stepVista(curStep);
+
+      if (vista) {
+        const drawn = drawVista(ctx, vista, CANVAS_W, CANVAS_H, time);
+        if (drawn) return;
       }
+
+      if (gg.inside) {
+        const b = MAPS[gg.map]?.buildings.find((bb) => bb.id === gg.inside!.id);
+        const room = b?.interior?.(gg);
+        if (b && room) {
+          ctx.fillStyle = '#0f1a0b';
+          ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+          const ox = (CANVAS_W - room.w * TILE) / 2, oy = (CANVAS_H - room.h * TILE) / 2;
+          drawInterior(ctx, room, b.style, ox, oy);
+          if (room.attendant) {
+            drawSprite(ctx, 'down', 0, HERO_PALETTE,
+              ox + room.attendant.x * TILE, oy + room.attendant.y * TILE - 3, TILE);
+          }
+          drawSprite(ctx, facingRef.current, stepFrameRef.current, HERO_PALETTE,
+            ox + gg.inside.x * TILE, oy + gg.inside.y * TILE - 3, TILE);
+        }
+        return;
+      }
+
+      const m = MAPS[gg.map] ?? MAPS.osaka;
+      const mw = m.grid[0].length, mh = m.grid.length;
+      const camX = Math.max(0, Math.min(gg.x - Math.floor(VIEW_W / 2), mw - VIEW_W));
+      const camY = Math.max(0, Math.min(gg.y - Math.floor(VIEW_H / 2), mh - VIEW_H));
+      drawTiles(ctx, m, camX, camY, VIEW_W, VIEW_H, time);
+      for (const b of m.buildings) drawBuilding(ctx, b, gg, camX, camY, time);
+      for (let i = 0; i < m.npcs.length; i++) {
+        const n = m.npcs[i];
+        if (n.条件 && !n.条件(gg)) continue;
+        const bob = Math.sin(time / 420 + i * 1.7) * 1.5;
+        const pal: SpritePalette = { ...HERO_PALETTE, ...n.palette };
+        drawSprite(ctx, 'down', 0, pal, (n.x - camX) * TILE, (n.y - camY) * TILE + bob, TILE);
+      }
+      drawSprite(ctx, facingRef.current, stepFrameRef.current, HERO_PALETTE,
+        (gg.x - camX) * TILE, (gg.y - camY) * TILE - 3, TILE);
     };
     drawNowRef.current = () => draw(performance.now());
     let raf = 0;
-    const loop = (t: number) => { draw(t); raf = requestAnimationFrame(loop); };
+    const loop = (time: number) => { draw(time); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [idx]);
   useEffect(() => { drawNowRef.current(); }, [g, scene]);
 
-  const onPortalOrDoor =
-    map.portals.some((p) => p.x === g.x && p.y === g.y) ||
-    map.buildings.some((b) => b.door.x === g.x && b.door.y === g.y);
+  const onPortalOrDoor = g.inside
+    ? false
+    : map.portals.some((p) => p.x === g.x && p.y === g.y) || map.buildings.some((b) => b.door.x === g.x && b.door.y === g.y);
 
-  const cur = scene?.[idx];
   const progress = `${g.大陸.length}/5`;
+  const chapter = map.名前;
 
   return (
     <div>
@@ -256,24 +346,26 @@ export function GameScreen() {
           </button>
         </div>
         <div className="lq-muted" style={{ marginTop: 2 }}>
-          ▶ {goalOf(g)}　<span style={{ opacity: 0.7 }}>（{map.名前}）</span>
+          ▶ {goalOf(g)}　<span style={{ opacity: 0.7 }}>（{g.inside ? `${chapter}・屋内` : chapter}）</span>
         </div>
       </div>
 
-      {/* フィールド */}
+      {/* フィールド／屋内／カットイン */}
       <div style={{ overflowX: 'auto' }}>
         <canvas
           ref={canvasRef}
-          width={VIEW_W * TILE}
-          height={VIEW_H * TILE}
+          width={CANVAS_W}
+          height={CANVAS_H}
           className="pixel"
           style={{ border: '3px solid var(--frame)', maxWidth: '100%', display: 'block', margin: '0 auto' }}
           onClick={interact}
         />
       </div>
-      {!scene && (
+      {!scene && !activeVista && (
         <p className="lq-muted" style={{ textAlign: 'center', margin: '6px 0' }}>
-          {onPortalOrDoor ? 'Enter / クリックで 調べる・入る' : '矢印キー / WASD で移動'}
+          {g.inside
+            ? '矢印/WASDで歩く・カウンターでEnter・出口で外へ'
+            : onPortalOrDoor ? 'Enter / クリックで 調べる・入る' : '矢印キー / WASD で移動'}
         </p>
       )}
 

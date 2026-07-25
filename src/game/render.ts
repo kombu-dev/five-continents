@@ -1,7 +1,8 @@
 // 描画（v0.2）。タイル・建物・観覧車をcanvasに手続き描画する。
 // 建物はスタイルごとに壁色・屋根・窓・付帯物（時計/暖簾/煙突/クレーン等）を変える。
 
-import type { Building, BuildingStyle, G, MapDef } from './types';
+import type { Building, BuildingStyle, G, Interior, MapDef } from './types';
+import { decorOf } from './interiors';
 
 export const TILE = 32;
 
@@ -325,4 +326,161 @@ export function drawTiles(
       drawTile(ctx, ch, x * T, y * T, gx, gy, time);
     }
   }
+}
+
+// ==================== 建物内部（v0.3） ====================
+
+/** 内部の部屋を描く。canvasの左上(originX,originY)から interior.w×interior.h タイル分 */
+export function drawInterior(
+  ctx: CanvasRenderingContext2D, interior: Interior, style: BuildingStyle, originX: number, originY: number,
+): void {
+  const d = decorOf(style);
+  for (let y = 0; y < interior.h; y++) {
+    for (let x = 0; x < interior.w; x++) {
+      const px = originX + x * T, py = originY + y * T;
+      const isWall = x === 0 || y === 0 || x === interior.w - 1 || y === interior.h - 1;
+      const isExit = x === interior.exit.x && y === interior.exit.y;
+      if (isWall && !isExit) {
+        ctx.fillStyle = d.wall;
+        ctx.fillRect(px, py, T, T);
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.fillRect(px, py, T, 4);
+      } else {
+        ctx.fillStyle = d.floor;
+        ctx.fillRect(px, py, T, T);
+        ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1;
+        ctx.strokeRect(px + 0.5, py + 0.5, T - 1, T - 1);
+      }
+      if (isExit) {
+        ctx.fillStyle = '#4e2e18';
+        ctx.fillRect(px + 4, py + 4, T - 8, T - 8);
+        ctx.fillStyle = TILE_COL.pathEdge;
+        ctx.fillRect(px + 7, py + 7, T - 14, T - 14);
+      }
+    }
+  }
+  // 家具（装飾のみ）
+  ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const f of interior.furniture) {
+    ctx.fillText(f.icon, originX + (f.x + 0.5) * T, originY + (f.y + 0.55) * T);
+  }
+  // カウンター（attendantがいる場合、そこに机を描く）
+  if (interior.attendant) {
+    const px = originX + interior.attendant.x * T, py = originY + interior.attendant.y * T;
+    ctx.fillStyle = '#8a5a3c';
+    ctx.fillRect(px + 2, py + T * 0.55, T - 4, T * 0.4);
+    ctx.strokeStyle = TILE_COL.ink; ctx.lineWidth = 1;
+    ctx.strokeRect(px + 2, py + T * 0.55, T - 4, T * 0.4);
+  }
+}
+
+// ==================== カットイン（vista・v0.3） ====================
+// ポケモンのバトル画面のような「寄り」の一枚絵。開業式典・契約・代表作完成・エンディングで使う。
+
+function sky(ctx: CanvasRenderingContext2D, w: number, h: number, top: string, bottom: string): void {
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, top); grad.addColorStop(1, bottom);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+}
+
+function silhouettePeople(ctx: CanvasRenderingContext2D, w: number, baseY: number, n: number, color: string): void {
+  ctx.fillStyle = color;
+  for (let i = 0; i < n; i++) {
+    const x = (w / (n + 1)) * (i + 1) + Math.sin(i * 2.3) * 8;
+    const hgt = 18 + (i % 3) * 4;
+    ctx.beginPath(); ctx.arc(x, baseY - hgt, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(x - 3, baseY - hgt + 3, 6, hgt - 3);
+  }
+}
+
+/** 開業式典：夕焼け＋観覧車＋祝う人々のシルエット＋紙吹雪 */
+function vistaCeremony(ctx: CanvasRenderingContext2D, w: number, h: number, time: number): void {
+  sky(ctx, w, h, '#f0a860', '#8a4a6a');
+  ctx.fillStyle = '#c8305a';
+  ctx.beginPath(); ctx.arc(w * 0.5, h * 0.42, 30, 0, Math.PI * 2); ctx.fill();
+  drawFerrisWheel(ctx, w * 0.72, h * 0.62, 70, time);
+  ctx.fillStyle = '#241428';
+  ctx.fillRect(0, h * 0.78, w, h * 0.22);
+  silhouettePeople(ctx, w, h * 0.78, 9, '#150e18');
+  const colors = ['#ffe86b', '#d24b3a', '#2f6fb0', '#3c8a4a'];
+  for (let i = 0; i < 24; i++) {
+    const seed = i * 37.13;
+    const fx = (seed * 13 + time / 20) % w;
+    const fy = (seed * 7 + time / 8) % (h * 0.7);
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(fx, fy, 3, 6);
+  }
+}
+
+/** 契約・交渉：夜のオフィスで向かい合う二つの影 */
+function vistaContract(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  sky(ctx, w, h, '#1a2436', '#0c1420');
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = `rgba(255,220,140,${0.08 + (i % 3) * 0.05})`;
+    ctx.fillRect(20 + i * 60, 20, 30, 60);
+  }
+  ctx.fillStyle = '#2a3346';
+  ctx.fillRect(0, h * 0.68, w, h * 0.32);
+  ctx.fillStyle = '#0c0a10';
+  ctx.beginPath(); ctx.arc(w * 0.36, h * 0.6, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(w * 0.36 - 5, h * 0.6 + 3, 10, 24);
+  ctx.beginPath(); ctx.arc(w * 0.64, h * 0.6, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(w * 0.64 - 5, h * 0.6 + 3, 10, 24);
+  ctx.fillStyle = '#ffe86b';
+  ctx.fillRect(w * 0.46, h * 0.72, w * 0.08, 3);
+}
+
+/** 制作：手元に寄ったアトリエ、灯り一つ */
+function vistaWorkshop(ctx: CanvasRenderingContext2D, w: number, h: number, time: number): void {
+  sky(ctx, w, h, '#0d1512', '#1c281c');
+  const flick = 0.85 + Math.sin(time / 140) * 0.15;
+  ctx.fillStyle = `rgba(255,220,150,${0.35 * flick})`;
+  ctx.beginPath(); ctx.arc(w * 0.5, h * 0.42, 90, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#3a2a18';
+  ctx.fillRect(w * 0.3, h * 0.62, w * 0.4, h * 0.1);
+  ctx.fillStyle = '#c9a06a';
+  ctx.fillRect(w * 0.44, h * 0.5, w * 0.12, h * 0.14);
+  ctx.fillStyle = '#0c0a10';
+  ctx.beginPath(); ctx.arc(w * 0.5, h * 0.36, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillRect(w * 0.5 - 7, h * 0.39, 14, 20);
+}
+
+/** 終幕：夕陽に五つの観覧車のシルエット */
+function vistaEnding(ctx: CanvasRenderingContext2D, w: number, h: number, time: number): void {
+  sky(ctx, w, h, '#e8905a', '#4a3060');
+  ctx.fillStyle = '#f0c060';
+  ctx.beginPath(); ctx.arc(w * 0.5, h * 0.5, 46, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#241830';
+  for (let i = 0; i < 5; i++) {
+    const cx = (w / 6) * (i + 1);
+    const r = 22 + (i % 2) * 6;
+    ctx.beginPath(); ctx.arc(cx, h * 0.72, r, Math.PI, 0); ctx.stroke();
+    ctx.strokeStyle = '#241830'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, h * 0.72, r, 0, Math.PI * 2); ctx.stroke();
+    for (let s = 0; s < 6; s++) {
+      const a = time / 6000 + (s * Math.PI) / 3 + i;
+      ctx.beginPath();
+      ctx.moveTo(cx, h * 0.72);
+      ctx.lineTo(cx + Math.cos(a) * r, h * 0.72 + Math.sin(a) * r);
+      ctx.stroke();
+    }
+  }
+  ctx.fillStyle = '#150e18';
+  ctx.fillRect(0, h * 0.86, w, h * 0.14);
+}
+
+const VISTAS: Record<string, (ctx: CanvasRenderingContext2D, w: number, h: number, time: number) => void> = {
+  ceremony: vistaCeremony,
+  contract: (ctx, w, h) => vistaContract(ctx, w, h),
+  workshop: vistaWorkshop,
+  ending: vistaEnding,
+};
+
+/** 一枚絵カットインを描く（存在しないidなら何もしない） */
+export function drawVista(ctx: CanvasRenderingContext2D, id: string, w: number, h: number, time: number): boolean {
+  const fn = VISTAS[id];
+  if (!fn) return false;
+  fn(ctx, w, h, time);
+  return true;
 }

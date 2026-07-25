@@ -1,7 +1,7 @@
-// 物語 v0.2。構成は5幕のまま、選択が後の幕に響く因果システムを敷く。
+// 物語 v0.3。5幕構成＋因果システム＋パーク設計会議＋カットイン演出。
 // 隠し軸：信念（自分の流儀を貫く選択）／実利（速さと利益を取る選択）。HUDには出さない。
-// 主要フラグ：融資/外部資本・金で迫った・全面改装/記憶を残す設計・岬不在・鷹司と対立・
-// 直営/合弁・文化適応/文化軽視・IPO/米国合弁・委譲/現場主義/現地任せ → エンディング5種を分岐。
+// パーク設計：大陸を重ねるごとに考える項目が増える（里山3→欧州+2→米+2→豪+2→阿+2＝計11項目）。
+// vista：ポケモンのバトル画面のような「寄り」の一枚絵。開業式典・契約・制作・終幕で使う（render.ts側で描画）。
 
 import type { G, Step } from './types';
 
@@ -29,9 +29,151 @@ export function goalOf(g: G): string {
   return GOALS[g.stage] ?? GOALS[14];
 }
 
-const t = (text: string, speaker?: string, effect?: (g: G) => void): Step => ({ text, speaker, effect });
+const t = (text: string, speaker?: string, effect?: (g: G) => void, vista?: string): Step => ({ text, speaker, effect, vista });
 const has = (g: G, f: string) => g.flags.includes(f);
 const ECHO = '（――この選択は、遠くで響く気がする）';
+
+// ==================== パーク設計会議（v0.3） ====================
+// 大陸を重ねるごとに項目が増える。各選択は「こだわり」「効率」「中庸」の軸を持ち、
+// 信念/実利・資金/評判に即座に反映される＋g.パーク[大陸]に記録が残る（後で見返せる）。
+
+type Axis = 'こだわり' | '効率' | '中庸';
+interface DesignOption { label: string; value: string; axis: Axis; note: string }
+interface DesignItem { key: string; question: string; speaker?: string; options: DesignOption[] }
+
+function axisEffect(axis: Axis): (s: G) => void {
+  return (s: G) => {
+    if (axis === 'こだわり') { s.信念 += 1; s.評判 += 2; s.資金 -= 100; }
+    else if (axis === '効率') { s.実利 += 1; s.資金 += 150; s.評判 -= 1; }
+    else { s.評判 += 1; s.資金 += 20; }
+  };
+}
+
+function designStep(continent: string, item: DesignItem): Step {
+  return {
+    choices: item.options.map((o) => ({
+      label: o.label,
+      steps: [t(o.note, item.speaker)],
+      effect: (s: G) => {
+        axisEffect(o.axis)(s);
+        s.パーク[continent] = { ...(s.パーク[continent] ?? {}), [item.key]: o.value };
+      },
+    })),
+  };
+}
+
+/** 設計会議シーン一式。introの後、items数ぶんの問答が続く */
+function designMeeting(continent: string, intro: Step[], items: DesignItem[]): Step[] {
+  const body: Step[] = [];
+  for (const item of items) {
+    body.push(t(item.question, item.speaker));
+    body.push(designStep(continent, item));
+  }
+  return [...intro, ...body];
+}
+
+const ITEMS_ASIA: DesignItem[] = [
+  {
+    key: 'テーマ', question: '……で、パーク全体を貫く世界観、どうする？', speaker: '日野',
+    options: [
+      { label: '学び舎の記憶をテーマにする', value: '学び舎の記憶', axis: 'こだわり', note: '「校舎そのものが物語になる。壊さんでよかったな」' },
+      { label: '定番の非日常・遊園地にする', value: '非日常の遊園地', axis: '効率', note: '「わかりやすいのが一番や。早う客呼ぼ」' },
+      { label: '里山の暮らしと遊びを融合させる', value: '里山と遊びの融合', axis: '中庸', note: '「田んぼも展示品や。それもありやな」' },
+    ],
+  },
+  {
+    key: 'シンボル', question: 'パークの顔になる建造物は？', speaker: '日野',
+    options: [
+      { label: '校舎の時計台を象徴として残す', value: '思い出の大時計塔', axis: 'こだわり', note: '「時計台、また動くようにしたで」' },
+      { label: '大観覧車を新設する', value: '大観覧車', axis: '効率', note: '「遠くからでも見える。広告塔や」' },
+      { label: '校庭の巨木をツリーハウスに', value: '巨木のツリーハウス', axis: '中庸', note: '「あの木、まだ元気やったな」' },
+    ],
+  },
+  {
+    key: '目玉', question: '一番の目玉アトラクションは？', speaker: '日野',
+    options: [
+      { label: '体育館を光と音のダークライドに', value: '光と音のダークライド', axis: 'こだわり', note: '「体育館の反響、活かせる思う」' },
+      { label: '絶叫系コースターを入れる', value: '絶叫コースター', axis: '効率', note: '「叫び声が一番の広告や」' },
+      { label: '参加体験型ワークショップにする', value: '参加体験ワークショップ', axis: '中庸', note: '「自分で作る、が一番残る思う」' },
+    ],
+  },
+];
+
+const ITEMS_EUROPE: DesignItem[] = [
+  {
+    key: 'ターゲット層', question: 'この街では、誰に向けたパークにする？', speaker: 'マルタ',
+    options: [
+      { label: '地元の家族連れを最優先する', value: '地元家族連れ', axis: 'こだわり', note: '「地元が愛さないと、観光客も来ないわ」' },
+      { label: '観光客・インバウンド中心にする', value: 'インバウンド中心', axis: '効率', note: '「客単価が違う。割り切りましょ」' },
+      { label: '文化好きの大人層を狙う', value: '文化層', axis: '中庸', note: '「祭りに出たあなたなら、分かるでしょ」' },
+    ],
+  },
+  {
+    key: '価格戦略', question: 'チケットの値付けは？', speaker: 'マルタ',
+    options: [
+      { label: '地域価格で薄利多売にする', value: '地域価格', axis: 'こだわり', note: '「この街の人が通える値段にね」' },
+      { label: 'ダイナミックプライシングで最大化', value: '変動価格制', axis: '効率', note: '「繁忙期にしっかり回収するのよ」' },
+      { label: '年間パス中心の設計にする', value: '年パス中心', axis: '中庸', note: '「常連を作る。悪くないわ」' },
+    ],
+  },
+];
+
+const ITEMS_AMERICA: DesignItem[] = [
+  {
+    key: 'セキュリティ', question: '安全・セキュリティの水準はどうする？', speaker: 'ハリス',
+    options: [
+      { label: '業界最高水準＋防災訓練を徹底', value: '最高水準の安全設計', axis: 'こだわり', note: '「訴訟大国だ。これは削れない」' },
+      { label: '法定最小限に抑える', value: '法定最小限', axis: '効率', note: '「コストは正直、削れるだけ削る」' },
+      { label: '標準的な保険と監視体制にする', value: '標準的な体制', axis: '中庸', note: '「無難だが、それでいい」' },
+    ],
+  },
+  {
+    key: 'スポンサー', question: 'コーポレートスポンサーは付ける？', speaker: 'ハリス',
+    options: [
+      { label: '大型スポンサー複数、冠付きにする', value: '大型スポンサー複数', axis: '効率', note: '「金は出る。名前は少し借りるがな」' },
+      { label: 'スポンサーなし、ブランド純度優先', value: 'スポンサーなし', axis: 'こだわり', note: '「……珍しいタイプだな、お前」' },
+      { label: '地元企業のみ小口で受ける', value: '地元企業のみ', axis: '中庸', note: '「地に足つけるタイプか」' },
+    ],
+  },
+];
+
+const ITEMS_OCEANIA: DesignItem[] = [
+  {
+    key: '人員研修', question: 'キャストの育て方は？', speaker: 'ノア',
+    options: [
+      { label: '本国メソッドを長期研修で叩き込む', value: '本国式長期研修', axis: 'こだわり', note: '「クオリティは揃うけど、時間かかるわよ」' },
+      { label: '現地採用、最小限の研修で回す', value: '現地採用・最小研修', axis: '効率', note: '「早く開けるのが一番でしょ」' },
+      { label: '現地文化を取り入れた独自研修にする', value: '独自研修', axis: '中庸', note: '「面白いやり方ね、それ」' },
+    ],
+  },
+  {
+    key: '飲食物販', question: '何を売る？', speaker: 'ノア',
+    options: [
+      { label: '土地の食材を使った一点物にする', value: '土地の一点物', axis: 'こだわり', note: '「地元の漁師、喜ぶと思うわよ」' },
+      { label: 'グローバル標準メニューで統一', value: 'グローバル標準', axis: '効率', note: '「補充も管理も楽になるわ」' },
+      { label: '半分ずつ組み合わせる', value: '半々構成', axis: '中庸', note: '「バランス派ね」' },
+    ],
+  },
+];
+
+const ITEMS_AFRICA: DesignItem[] = [
+  {
+    key: '環境インフラ', question: '電力と環境配慮はどうする？', speaker: 'アマラ',
+    options: [
+      { label: '太陽光＋雨水利用のグリーン設計にする', value: 'グリーン設計', axis: 'こだわり', note: '「この土地には、それが一番似合うわ」' },
+      { label: '最速で作れる標準インフラにする', value: '標準インフラ', axis: '効率', note: '「まずは開けることが正義よ」' },
+      { label: '一部だけグリーン化する', value: '一部グリーン化', axis: '中庸', note: '「現実的な落としどころね」' },
+    ],
+  },
+  {
+    key: '将来拡張', question: 'この先の展望は？', speaker: 'アマラ',
+    options: [
+      { label: 'ここで完成とし、深化させていく', value: '深化重視', axis: 'こだわり', note: '「広げるだけが正解じゃないものね」' },
+      { label: 'すぐ次のフェーズ用地を確保する', value: '拡張重視', axis: '効率', note: '「野心的ね。嫌いじゃないわ」' },
+      { label: '様子を見て決める', value: '様子見', axis: '中庸', note: '「賢明だと思うわ」' },
+    ],
+  },
+];
 
 // ---- エンディング判定 ----
 
@@ -45,6 +187,8 @@ function trail(g: G): Step[] {
   L.push(has(g, '文化軽視') ? '祭り：囃子に背を向けた' : '祭り：山車を担いだ');
   L.push(has(g, 'IPO') ? '米国：市場に打って出た' : '米国：土地の資本と組んだ');
   L.push(has(g, '委譲') ? '豪州：岬に灯りを託した' : has(g, '現場主義') ? '豪州：自分の体で灯した' : '豪州：見知らぬ誰かに賭けた');
+  const 里山テーマ = g.パーク['アジア']?.['テーマ'];
+  if (里山テーマ) L.push(`原点：里山のテーマは「${里山テーマ}」`);
   return L.map((s) => t(`・${s}`));
 }
 
@@ -59,31 +203,31 @@ function endingScene(g: G): Step[] {
 
   const body: Record<string, Step[]> = {
     帝国: [
-      t('五つの大陸。時価総額。空港の広告。', undefined, fix),
+      t('五つの大陸。時価総額。空港の広告。', undefined, fix, 'ending'),
       t('世界は、あなたの遊び場を「産業」と呼んだ。'),
       t('……悪くない。ただ、ゲートの外の行列を見るたび、'),
       t('最初の校庭の、あの静けさを思い出す。'),
     ],
     巡礼: [
-      t('五つの大陸。五つの土地の匂い。', undefined, fix),
+      t('五つの大陸。五つの土地の匂い。', undefined, fix, 'ending'),
       t('どのパークも、少しずつ形が違う。土地が形を決めたからだ。'),
       t('小野田「……ワシの学校が、世界の親玉になっとるとはな」'),
       t('あなたは今日も、どこかの現場で光の当て方を直している。'),
     ],
     家族: [
-      t('五つの大陸に、五人の「任された人」がいる。', undefined, fix),
+      t('五つの大陸に、五人の「任された人」がいる。', undefined, fix, 'ending'),
       t('岬「園長、こっちは任せてくださいって言ったでしょ」'),
       t('日野「わしら、もう行くとこ無くなってもうたな」'),
       t('遊び場は、人に渡した分だけ広くなった。'),
     ],
     独行: [
-      t('五つの大陸を、あなたはひとりで回り続けた。', undefined, fix),
+      t('五つの大陸を、あなたはひとりで回り続けた。', undefined, fix, 'ending'),
       t('身体は正直だ。夜、観覧車の一番上の座席でだけ、深く息をつく。'),
       t('それでも、灯りは五つ、確かに点いている。'),
       t('全部、この手で点けた灯りだ。'),
     ],
     調和: [
-      t('五つの大陸。五つの灯り。', undefined, fix),
+      t('五つの大陸。五つの灯り。', undefined, fix, 'ending'),
       t('貫いた日もあった。折れた日もあった。その全部が図面になった。'),
       t('マルタ「次は月？」　日野「アホ言え……で、いつ行く？」'),
       t('あなたは笑って、地図を畳んだ。'),
@@ -91,7 +235,7 @@ function endingScene(g: G): Step[] {
   };
 
   return [
-    t(`―― エンディング「${名}」 ――`),
+    t(`―― エンディング「${名}」 ――`, undefined, undefined, 'ending'),
     ...body[名],
     t('—— 歩んだ道 ——'),
     ...trail(g),
@@ -99,7 +243,7 @@ function endingScene(g: G): Step[] {
   ];
 }
 
-// ---- シーン ----
+// ==================== シーン ====================
 
 export function sceneFor(id: string, g: G): Step[] | null {
   switch (id) {
@@ -107,9 +251,9 @@ export function sceneFor(id: string, g: G): Step[] | null {
     case 'atelier':
       if (g.stage === 0) {
         return [
-          t('静かだ。道具の音だけがする。'),
-          t('（手が、止まらない――）'),
-          t('三十六時間後。'),
+          t('静かだ。道具の音だけがする。', undefined, undefined, 'workshop'),
+          t('（手が、止まらない――）', undefined, undefined, 'workshop'),
+          t('三十六時間後。', undefined, undefined, 'workshop'),
           t('代表作『環（めぐる）』が完成した！', undefined, (s) => { s.評判 += 5; s.stage = 1; }),
           t('（これを、誰かに見せなければ）'),
         ];
@@ -225,7 +369,7 @@ export function sceneFor(id: string, g: G): Step[] | null {
               {
                 label: '融資を受ける（3,000万円・毎月返済）',
                 steps: [
-                  t('ご返済は、きっちりと。', '支店長'),
+                  t('ご返済は、きっちりと。', '支店長', undefined, 'contract'),
                   t('3,000万円を調達した。会社は自分たちのもの。ただし毎月、返済日が来る。', undefined,
                     (s) => { s.資金 += 3000; s.flags.push('融資'); s.信念 += 1; s.stage = 5; }),
                   t(ECHO),
@@ -250,7 +394,7 @@ export function sceneFor(id: string, g: G): Step[] | null {
               {
                 label: '出資を受ける（5,000万円・口も出る）',
                 steps: [
-                  t('いい判断だ。金だけじゃなく、人も紹介する。', '鷹司'),
+                  t('いい判断だ。金だけじゃなく、人も紹介する。', '鷹司', undefined, 'contract'),
                   t('5,000万円を調達した。速度と引き換えに、株主という同乗者を得た。', undefined,
                     (s) => { s.資金 += 5000; s.flags.push('外部資本'); s.実利 += 1; s.stage = 5; }),
                   t(ECHO),
@@ -292,26 +436,32 @@ export function sceneFor(id: string, g: G): Step[] | null {
         return [t('槌音が響く。校舎が、遊び場に生まれ変わっていく。')];
       }
       if (g.stage === 10) {
-        const steps: Step[] = [t('開業当日。校門の前に、行列ができている。')];
+        const meeting = designMeeting(
+          'アジア',
+          [t('工事の目処が立った。開業前に——中身を決めなあかん。', '日野'), t('これが、一番最初の設計会議になる。')],
+          ITEMS_ASIA,
+        );
+        const openSteps: Step[] = [t('設計、固まったな。……ほな、開けよか。', '日野', undefined, 'ceremony')];
+        openSteps.push(t('開業当日。校門の前に、行列ができている。', undefined, undefined, 'ceremony'));
         if (has(g, '金で迫った')) {
-          steps.push(t('来賓席に、小野田の姿はなかった。'));
-          steps.push(t('（あの日の言葉は、まだ返しきれていない）'));
+          openSteps.push(t('来賓席に、小野田の姿はなかった。', undefined, undefined, 'ceremony'));
+          openSteps.push(t('（あの日の言葉は、まだ返しきれていない）', undefined, undefined, 'ceremony'));
         } else {
-          steps.push(t('……子どもらの声や。ほんまに戻ってきよった。', '小野田'));
-          if (has(g, '記憶を残す設計')) steps.push(t('教室の黒板に、来場者が最初の落書きをした。小野田が、それを消さずに笑った。'));
+          openSteps.push(t('……子どもらの声や。ほんまに戻ってきよった。', '小野田', undefined, 'ceremony'));
+          if (has(g, '記憶を残す設計')) openSteps.push(t('教室の黒板に、来場者が最初の落書きをした。小野田が、それを消さずに笑った。', undefined, undefined, 'ceremony'));
         }
-        steps.push(has(g, '岬不在')
-          ? t('スタッフはまだ、日野と二人だけだ。回るのか、これで。')
-          : t('岬「開門しまーす！」の声が、校庭に響いた。'));
-        steps.push(t('テープカット！ 「ワンダー環・里山」開業！'));
-        steps.push(t(
+        openSteps.push(has(g, '岬不在')
+          ? t('スタッフはまだ、日野と二人だけだ。回るのか、これで。', undefined, undefined, 'ceremony')
+          : t('岬「開門しまーす！」の声が、校庭に響いた。', undefined, undefined, 'ceremony'));
+        openSteps.push(t(`テープカット！ 「ワンダー環・里山（${g.パーク['アジア']?.['テーマ'] ?? '環'}）」開業！`, undefined, undefined, 'ceremony'));
+        openSteps.push(t(
           has(g, '金で迫った') ? '初日来場者988人。悪くない。だが町の空気は、まだ少し硬い。' : '初日来場者1,204人。「廃校がテーマパークに」とSNSで話題に。',
           undefined,
           (s) => { s.資金 += 800; s.評判 += has(s, '金で迫った') ? 12 : 20; s.大陸.push('アジア'); s.stage = 11; },
         ));
-        if (has(g, '外部資本')) steps.push(t('悪くない滑り出しだ。——次は海外だな？', '鷹司'));
-        steps.push(t('海外から視察の連絡や。ヨーロッパの事業家、マルタさん。空港行くで。', '日野'));
-        return steps;
+        if (has(g, '外部資本')) openSteps.push(t('悪くない滑り出しだ。——次は海外だな？', '鷹司'));
+        openSteps.push(t('海外から視察の連絡や。ヨーロッパの事業家、マルタさん。空港行くで。', '日野'));
+        return [...meeting, ...openSteps];
       }
       return [t('観覧車がゆっくり回る。今日も家族連れの声がする。')];
 
@@ -326,7 +476,7 @@ export function sceneFor(id: string, g: G): Step[] | null {
         persuade.push(t('……校舎、壊さんのか。', '小野田'));
         persuade.push(t('「教室も黒板も、遊びの舞台として残します」'));
         persuade.push(t('……年100万。安うしとく。子どもらの声が戻るんなら、や。', '小野田',
-          (s) => { s.資金 -= 100; s.flags.push('土地'); s.stage = 7; }));
+          (s) => { s.資金 -= 100; s.flags.push('土地'); s.stage = 7; }, 'contract'));
         persuade.push(t('次は役場や。許認可がないと工事も営業もできん。', '日野'));
         return [
           t('学校を、遊び場にする……やと？', '小野田'),
@@ -440,7 +590,7 @@ export function sceneFor(id: string, g: G): Step[] | null {
         ];
         if (has(g, '外部資本')) intro.push(t('（同席の鷹司）直営でやれ。出した金は、利益で返してもらうぞ。', '鷹司'));
         const sealed: Step[] = [
-          t('契約成立。ただし——', 'マルタ', (s) => { s.stage = 12; }),
+          t('契約成立。ただし——', 'マルタ', (s) => { s.stage = 12; }, 'contract'),
           t('この街を知らずに作るのは、やめてね。広場の老楽師を訪ねなさい。', 'マルタ'),
         ];
         const choices: Step = {
@@ -487,7 +637,7 @@ export function sceneFor(id: string, g: G): Step[] | null {
               {
                 label: '祭りに参加する',
                 steps: [
-                  t('——山車を担いだ。火を囲んだ。歌の意味を教わった。'),
+                  t('——山車を担いだ。火を囲んだ。歌の意味を教わった。', undefined, undefined, 'workshop'),
                   t('（この土地の「遊びの記憶」が、体に入った）', undefined,
                     (s) => { s.評判 += 5; s.flags.push('文化適応'); s.信念 += 1; s.stage = 13; }),
                   t('倉庫街に行け。お前の国の遊びと、混ぜてみせろ。', '老楽師'),
@@ -522,22 +672,27 @@ export function sceneFor(id: string, g: G): Step[] | null {
 
     case 'eusite':
       if (g.stage === 13) {
+        const meeting = designMeeting(
+          'ヨーロッパ',
+          [t('海外一号だ。ここでは、また違う項目を詰めなあかん。', '日野'), t('客層と、値付け。決めよか。')],
+          ITEMS_EUROPE,
+        );
         if (has(g, '文化軽視')) {
-          return [
-            t('旧倉庫街のゲート前。石畳は、静かだった。'),
-            t('……言ったでしょ、って顔はしないであげる。', 'マルタ'),
+          return [...meeting,
+            t('旧倉庫街のゲート前。石畳は、静かだった。', undefined, undefined, 'ceremony'),
+            t('……言ったでしょ、って顔はしないであげる。', 'マルタ', undefined, 'ceremony'),
             t('「ワンダー環・欧州」開業。客足は、初日から伸び悩んだ。', undefined,
-              (s) => { s.資金 += 600; s.評判 += 8; s.大陸.push('ヨーロッパ'); s.flags.push('欧州苦戦'); s.stage = 14; }),
+              (s) => { s.資金 += 600; s.評判 += 8; s.大陸.push('ヨーロッパ'); s.flags.push('欧州苦戦'); s.stage = 14; }, 'ceremony'),
             t('祭りの街で、祭りに出んかった。……効いとるなあ。', '日野'),
             t('港から世界航路が開いた。……巻き返すで。', '日野'),
           ];
         }
-        return [
-          t('旧倉庫街のゲート前。石畳に、あの祭りの提灯が揺れる。'),
-          t('老楽師の楽団が、先導の一節を吹いた。'),
-          t('あなたの国の遊びと、この街の記憶の混ぜ物。悪くないでしょ。', 'マルタ'),
+        return [...meeting,
+          t('旧倉庫街のゲート前。石畳に、あの祭りの提灯が揺れる。', undefined, undefined, 'ceremony'),
+          t('老楽師の楽団が、先導の一節を吹いた。', undefined, undefined, 'ceremony'),
+          t('あなたの国の遊びと、この街の記憶の混ぜ物。悪くないでしょ。', 'マルタ', undefined, 'ceremony'),
           t('「ワンダー環・欧州」開業！ 二つ目の大陸。', undefined,
-            (s) => { s.資金 += 1500; s.評判 += 15; s.大陸.push('ヨーロッパ'); s.stage = 14; }),
+            (s) => { s.資金 += 1500; s.評判 += 15; s.大陸.push('ヨーロッパ'); s.stage = 14; }, 'ceremony'),
           t('港から世界航路が開いたで。ここからは、地図の話や。', '日野'),
         ];
       }
@@ -558,24 +713,26 @@ export function sceneFor(id: string, g: G): Step[] | null {
     case 'america':
       if (g.大陸.includes('アメリカ')) return [t('三年かけたパークが、地平線まで続いている。')];
       if (g.stage >= 14) {
-        const intro: Step[] = [
-          t('ここは桁が違うぞ。土地も、金も、訴訟もだ。', 'ハリス'),
-          t('本気の資本が要る。どう作る？', 'ハリス'),
-        ];
+        const meeting = designMeeting(
+          'アメリカ',
+          [t('ここは桁が違うぞ。決めることも増える。', 'ハリス'), t('安全とスポンサー、まず詰めよう。', 'ハリス')],
+          ITEMS_AMERICA,
+        );
+        const intro: Step[] = [t('本気の資本が要る。どう作る？', 'ハリス')];
         if (has(g, '外部資本')) intro.push(t('上場しろ。それが最短だ。', '鷹司'));
         const ipoSteps: Step[] = has(g, '融資')
           ? [
               t('借入があると、上場審査は厳しい。', 'ハリス'),
               t('審査は難航した。……最後に効いたのは、遅れなしの返済実績だった。', undefined,
-                (s) => { s.資金 += 4000; s.flags.push('IPO'); s.実利 += 2; }),
+                (s) => { s.資金 += 4000; s.flags.push('IPO'); s.実利 += 2; }, 'contract'),
               t('株主という名の観客が、何万人も増えた。'),
             ]
           : [
               t('株主という名の観客が、何万人も増えた。', undefined,
-                (s) => { s.資金 += 5000; s.flags.push('IPO'); s.実利 += 2; }),
+                (s) => { s.資金 += 5000; s.flags.push('IPO'); s.実利 += 2; }, 'contract'),
             ];
         const jvSteps: Step[] = [
-          t('速い。ただし手綱は共有だ。', 'ハリス', (s) => { s.資金 += 3000; s.flags.push('米国合弁'); s.信念 += 1; }),
+          t('速い。ただし手綱は共有だ。', 'ハリス', (s) => { s.資金 += 3000; s.flags.push('米国合弁'); s.信念 += 1; }, 'contract'),
         ];
         if (has(g, '鷹司と対立')) {
           jvSteps.push(t('——また私の反対を押し切るのか。', '鷹司'));
@@ -587,15 +744,14 @@ export function sceneFor(id: string, g: G): Step[] | null {
               (s) => { s.資金 -= 2000; s.flags.push('株を買い戻した'); }));
           }
         }
-        return [
-          ...intro,
+        return [...meeting, ...intro,
           { choices: [
             { label: '上場して資金を作る（IPO）', steps: ipoSteps },
             { label: '現地財閥と合弁する', steps: jvSteps },
           ] },
           t('——三年の建設を経て。'),
           t('「ワンダー環・アメリカ」開業！', undefined,
-            (s) => { s.評判 += 15; if (!s.大陸.includes('アメリカ')) s.大陸.push('アメリカ'); }),
+            (s) => { s.評判 += 15; if (!s.大陸.includes('アメリカ')) s.大陸.push('アメリカ'); }, 'ceremony'),
         ];
       }
       return null;
@@ -603,6 +759,11 @@ export function sceneFor(id: string, g: G): Step[] | null {
     case 'oceania':
       if (g.大陸.includes('オセアニア')) return [t('海風のパーク。朝礼の声が、波音に混ざって聞こえる。')];
       if (g.stage >= 14) {
+        const meeting = designMeeting(
+          'オセアニア',
+          [t('人と、味。ここではその二つを詰めよう。', 'ノア')],
+          ITEMS_OCEANIA,
+        );
         const choices: { label: string; steps?: Step[]; effect?: (s: G) => void }[] = [];
         if (g.仲間.includes('岬')) {
           choices.push({
@@ -634,12 +795,12 @@ export function sceneFor(id: string, g: G): Step[] | null {
             ],
           });
         }
-        return [
+        return [...meeting,
           t('ここまで来ると、あなたの体は一つしかないのが問題ね。', 'ノア'),
           t('もう、全部の現場には立てない。', 'ノア'),
           { choices },
           t('「ワンダー環・オセアニア」開業！ 四つ目の大陸。', undefined,
-            (s) => { s.資金 += 3000; s.評判 += 10; if (!s.大陸.includes('オセアニア')) s.大陸.push('オセアニア'); }),
+            (s) => { s.資金 += 3000; s.評判 += 10; if (!s.大陸.includes('オセアニア')) s.大陸.push('オセアニア'); }, 'ceremony'),
           t('残るは——あと一つ。'),
         ];
       }
@@ -648,11 +809,15 @@ export function sceneFor(id: string, g: G): Step[] | null {
     case 'africa':
       if (g.大陸.includes('アフリカ')) return [t('五つ目の観覧車が、夕陽の中で回っている。')];
       if (g.stage >= 14 && g.大陸.length >= 4) {
+        const meeting = designMeeting(
+          'アフリカ',
+          [t('最後の大陸。ここでは、未来の話も決めておこう。', 'アマラ')],
+          ITEMS_AFRICA,
+        );
         const intro: Step[] = [t('最後の大陸へ、ようこそ。', 'アマラ')];
         if (has(g, '文化軽視')) intro.push(t('ヨーロッパでは、祭りに出なかったそうね。——ここでは、そうはいかないわ。', 'アマラ'));
         intro.push(t('一つだけ聞かせて。あなたは、なぜ作り続けるの？', 'アマラ'));
-        return [
-          ...intro,
+        return [...meeting, ...intro,
           {
             choices: [
               { label: '子どもの頃の自分のため', steps: [t('なら、その子はもう報われてるわ。', 'アマラ', (s) => { s.信念 += 1; })] },
@@ -660,8 +825,8 @@ export function sceneFor(id: string, g: G): Step[] | null {
               { label: 'もう、理由は要らない', steps: [t('……それが一番強い答えね。', 'アマラ', (s) => { s.flags.push('無心'); })] },
             ],
           },
-          t('——「ワンダー環・アフリカ」開業。'),
-          t('五つの大陸に、灯りが点いた。'),
+          t('——「ワンダー環・アフリカ」開業。', undefined, undefined, 'ceremony'),
+          t('五つの大陸に、灯りが点いた。', undefined, undefined, 'ceremony'),
           ...endingScene(g),
         ];
       }
