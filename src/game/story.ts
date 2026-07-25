@@ -177,7 +177,8 @@ const ITEMS_AFRICA: DesignItem[] = [
 
 // ---- エンディング判定 ----
 
-function trail(g: G): Step[] {
+/** 歩んだ道のサマリー（プレーンな文字列）。エンディングの回顧セリフとクリア画面の両方から使う */
+export function trailLines(g: G): string[] {
   const L: string[] = [];
   L.push(has(g, '融資') ? '資金：銀行から借り、自力で返した' : '資金：鷹司の出資で速度を買った');
   if (has(g, '金で迫った')) L.push('土地：一度、金で迫ってしまった');
@@ -189,7 +190,20 @@ function trail(g: G): Step[] {
   L.push(has(g, '委譲') ? '豪州：岬に灯りを託した' : has(g, '現場主義') ? '豪州：自分の体で灯した' : '豪州：見知らぬ誰かに賭けた');
   const 里山テーマ = g.パーク['アジア']?.['テーマ'];
   if (里山テーマ) L.push(`原点：里山のテーマは「${里山テーマ}」`);
-  return L.map((s) => t(`・${s}`));
+  return L;
+}
+
+/** エンディング名ごとの一行紹介（クリア画面で使う） */
+export const ENDING_BLURB: Record<string, string> = {
+  帝国: '五つの大陸。時価総額。空港の広告。世界は、あなたの遊び場を「産業」と呼んだ。',
+  巡礼: '五つの大陸。五つの土地の匂い。土地が形を決めた、五つの違うパーク。',
+  家族: '五つの大陸に、五人の「任された人」がいる。遊び場は、人に渡した分だけ広くなった。',
+  独行: '五つの大陸を、あなたはひとりで回り続けた。全部、この手で点けた灯りだ。',
+  調和: '五つの大陸。五つの灯り。貫いた日もあった。折れた日もあった。その全部が図面になった。',
+};
+
+function trail(g: G): Step[] {
+  return trailLines(g).map((s) => t(`・${s}`, undefined, undefined, 'ending'));
 }
 
 function endingScene(g: G): Step[] {
@@ -201,45 +215,46 @@ function endingScene(g: G): Step[] {
 
   const fix = (s: G) => { s.ending = 名; s.評判 = 100; if (!s.大陸.includes('アフリカ')) s.大陸.push('アフリカ'); s.stage = 99; };
 
+  // v0.4：クリア画面として最後まで一枚絵(vista:'ending')の上に台詞を重ねる（従来は最初の1行だけだった）
   const body: Record<string, Step[]> = {
     帝国: [
       t('五つの大陸。時価総額。空港の広告。', undefined, fix, 'ending'),
-      t('世界は、あなたの遊び場を「産業」と呼んだ。'),
-      t('……悪くない。ただ、ゲートの外の行列を見るたび、'),
-      t('最初の校庭の、あの静けさを思い出す。'),
+      t('世界は、あなたの遊び場を「産業」と呼んだ。', undefined, undefined, 'ending'),
+      t('……悪くない。ただ、ゲートの外の行列を見るたび、', undefined, undefined, 'ending'),
+      t('最初の校庭の、あの静けさを思い出す。', undefined, undefined, 'ending'),
     ],
     巡礼: [
       t('五つの大陸。五つの土地の匂い。', undefined, fix, 'ending'),
-      t('どのパークも、少しずつ形が違う。土地が形を決めたからだ。'),
-      t('小野田「……ワシの学校が、世界の親玉になっとるとはな」'),
-      t('あなたは今日も、どこかの現場で光の当て方を直している。'),
+      t('どのパークも、少しずつ形が違う。土地が形を決めたからだ。', undefined, undefined, 'ending'),
+      t('小野田「……ワシの学校が、世界の親玉になっとるとはな」', undefined, undefined, 'ending'),
+      t('あなたは今日も、どこかの現場で光の当て方を直している。', undefined, undefined, 'ending'),
     ],
     家族: [
       t('五つの大陸に、五人の「任された人」がいる。', undefined, fix, 'ending'),
-      t('岬「園長、こっちは任せてくださいって言ったでしょ」'),
-      t('日野「わしら、もう行くとこ無くなってもうたな」'),
-      t('遊び場は、人に渡した分だけ広くなった。'),
+      t('岬「園長、こっちは任せてくださいって言ったでしょ」', undefined, undefined, 'ending'),
+      t('日野「わしら、もう行くとこ無くなってもうたな」', undefined, undefined, 'ending'),
+      t('遊び場は、人に渡した分だけ広くなった。', undefined, undefined, 'ending'),
     ],
     独行: [
       t('五つの大陸を、あなたはひとりで回り続けた。', undefined, fix, 'ending'),
-      t('身体は正直だ。夜、観覧車の一番上の座席でだけ、深く息をつく。'),
-      t('それでも、灯りは五つ、確かに点いている。'),
-      t('全部、この手で点けた灯りだ。'),
+      t('身体は正直だ。夜、観覧車の一番上の座席でだけ、深く息をつく。', undefined, undefined, 'ending'),
+      t('それでも、灯りは五つ、確かに点いている。', undefined, undefined, 'ending'),
+      t('全部、この手で点けた灯りだ。', undefined, undefined, 'ending'),
     ],
     調和: [
       t('五つの大陸。五つの灯り。', undefined, fix, 'ending'),
-      t('貫いた日もあった。折れた日もあった。その全部が図面になった。'),
-      t('マルタ「次は月？」　日野「アホ言え……で、いつ行く？」'),
-      t('あなたは笑って、地図を畳んだ。'),
+      t('貫いた日もあった。折れた日もあった。その全部が図面になった。', undefined, undefined, 'ending'),
+      t('マルタ「次は月？」　日野「アホ言え……で、いつ行く？」', undefined, undefined, 'ending'),
+      t('あなたは笑って、地図を畳んだ。', undefined, undefined, 'ending'),
     ],
   };
 
   return [
     t(`―― エンディング「${名}」 ――`, undefined, undefined, 'ending'),
     ...body[名],
-    t('—— 歩んだ道 ——'),
+    t('—— 歩んだ道 ——', undefined, undefined, 'ending'),
     ...trail(g),
-    t('—— THE END ——　遊び続けろ。'),
+    t('—— THE END ——　遊び続けろ。', undefined, undefined, 'ending'),
   ];
 }
 

@@ -1,7 +1,10 @@
-// マップ定義（v0.3）。グリッドはビルダー関数で生成。
+// マップ定義（v0.4）。グリッドはビルダー関数で生成。
 // タイル: '.'草 '='道/航路 '~'水 '#'木 'M'山 'o'花 'b'橋 'r'田 'T'鳥居。ブロック＝ '#','~','M'＋建物。
 // v0.3: 全ドアの周囲は doorClear() で強制的に開ける（詰まり防止の安全策）。世界航路は島を拡大して再設計。
 // 建物はほぼ全て withInterior() で内部に入れる（v0.3・発注者要望）。
+// v0.4: doorClear()はドア直近の詰まりしか防げない——「陸路/航路が他の建物まで届いていない」という
+// 別クラスの詰まり（世界航路でアフリカにしか行けなかったバグ）を防ぐため assertConnected() を追加。
+// 新しいマップ・航路を足したら、doorClear() の後に必ず assertConnected(mapId, g, layouts) も呼ぶこと。
 
 import type { G, MapDef } from './types';
 import { withInterior } from './interiors';
@@ -51,6 +54,45 @@ const doorClear = (g: Grid, layouts: Layout[]) => {
   }
 };
 
+/** タイルが歩けるか（walkable()の簡易再実装。ビルド関数内はMapDefが未完成のため独立させる） */
+const gridWalkable = (g: Grid, layouts: Layout[], x: number, y: number): boolean => {
+  const t = g[y]?.[x];
+  if (t === undefined) return false;
+  for (const b of layouts) {
+    if (x === b.door.x && y === b.door.y) return true;
+    if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) return false;
+  }
+  return t !== '#' && t !== '~' && t !== 'M';
+};
+
+/**
+ * 安全策（v0.4）：ドアの詰まり（doorClear）とは別クラスの詰まり——
+ * 「ドア周辺は歩けるが、そこから他の建物のドアへ陸路/航路がつながっていない」を検知する。
+ * 世界航路で「アフリカにしか行けない」バグが起きた原因はこれ（doorClearだけでは検知できなかった）。
+ * 開発時のみ、全ドアが1つのグラフで到達可能かBFSで確認しconsole.errorで警告する。
+ */
+const assertConnected = (mapId: string, g: Grid, layouts: Layout[]) => {
+  if (!import.meta.env?.DEV || layouts.length < 2) return;
+  const key = (x: number, y: number) => `${x},${y}`;
+  const start = layouts[0].door;
+  const seen = new Set<string>([key(start.x, start.y)]);
+  const queue: [number, number][] = [[start.x, start.y]];
+  while (queue.length) {
+    const [x, y] = queue.shift()!;
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const nx = x + dx, ny = y + dy;
+      if (seen.has(key(nx, ny)) || !gridWalkable(g, layouts, nx, ny)) continue;
+      seen.add(key(nx, ny));
+      queue.push([nx, ny]);
+    }
+  }
+  for (const b of layouts) {
+    if (!seen.has(key(b.door.x, b.door.y))) {
+      console.error(`[maps:${mapId}] ドア(${b.door.x},${b.door.y})が他の建物と陸路/航路でつながっていません（詰まりの疑い）`);
+    }
+  }
+};
+
 // ==================== 大阪・下町（30×20） ====================
 const osakaLayout = {
   cafe:     { x: 3, y: 7, w: 4, h: 3, door: { x: 5, y: 10 } },
@@ -73,6 +115,7 @@ const osakaGrid = (() => {
   for (const [x, y] of [[3, 3], [4, 3], [3, 4], [8, 4], [9, 4], [15, 12], [16, 12], [21, 4], [21, 5]]) put(g, x, y, '#');
   for (const [x, y] of [[7, 2], [16, 9], [21, 11], [6, 13], [26, 12], [28, 16], [13, 12], [26, 16]]) put(g, x, y, 'o');
   doorClear(g, Object.values(osakaLayout));
+  assertConnected('osaka', g, Object.values(osakaLayout));
   return rows(g);
 })();
 
@@ -117,6 +160,7 @@ const bizGrid = (() => {
   for (const [x, y] of [[3, 13], [24, 13], [8, 7], [17, 13]]) put(g, x, y, 'o');
   for (const [x, y] of [[25, 7], [26, 7], [2, 7]]) put(g, x, y, '#');
   doorClear(g, Object.values(bizLayout));
+  assertConnected('biz', g, Object.values(bizLayout));
   return rows(g);
 })();
 
@@ -166,6 +210,7 @@ const ruralGrid = (() => {
   for (const [x, y] of [[21, 5], [22, 5], [21, 6], [28, 10], [29, 10]]) put(g, x, y, '#');
   for (const [x, y] of [[10, 12], [20, 12], [3, 10], [29, 16], [12, 10]]) put(g, x, y, 'o');
   doorClear(g, Object.values(ruralLayout));
+  assertConnected('rural', g, Object.values(ruralLayout));
   return rows(g);
 })();
 
@@ -219,6 +264,7 @@ const europeGrid = (() => {
   for (const [x, y] of [[3, 8], [27, 8], [8, 12], [21, 12], [3, 13]]) put(g, x, y, 'o');
   for (const [x, y] of [[2, 2], [27, 2]]) put(g, x, y, '#');
   doorClear(g, Object.values(europeLayout));
+  assertConnected('europe', g, Object.values(europeLayout));
   return rows(g);
 })();
 
@@ -266,8 +312,11 @@ const worldGrid = (() => {
   blob(g, 39, 21, 6, 4, '.');   // アジア島
   blob(g, 24, 23, 5, 3.5, '.'); // 母港の島
   // 航路（島と島の間の海を渡る）
+  // v0.4修正：横の航路がx15-33にしか届いておらず、欧州/オセアニア縦航路(x9)とアメリカ/アジア縦航路(x39)
+  // に接続していなかった（アフリカの縦航路(x24)とだけ交差＝母港からアフリカしか行けないバグの原因）。
+  // x9-x39まで届かせ、3本の縦航路をこの横航路1本で橋渡しする。
   routeV(g, 24, 10, 19);
-  routeH(g, 13, 15, 33);
+  routeH(g, 13, 9, 39);
   routeV(g, 9, 10, 17);
   routeV(g, 39, 10, 17);
   routeV(g, 24, 19, 20);
@@ -276,6 +325,7 @@ const worldGrid = (() => {
   for (const [x, y] of [[8, 3], [25, 10], [40, 17]]) put(g, x, y, 'M');
   for (const [x, y] of [[12, 7], [19, 16], [11, 23], [43, 23], [36, 4]]) put(g, x, y, 'o');
   doorClear(g, Object.values(worldLayout));
+  assertConnected('world', g, Object.values(worldLayout));
   return rows(g);
 })();
 

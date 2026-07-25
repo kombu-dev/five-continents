@@ -9,8 +9,10 @@ import { drawTiles, drawBuilding, drawInterior, drawVista, TILE } from '../game/
 import { drawSprite, HERO_PALETTE, type Facing, type SpritePalette } from '../game/sprites';
 import { interiorWalkable } from '../game/interiors';
 import { bgm, isMuted, se, setMuted, unlockAudio } from '../game/audio';
+import { EndingResult } from './EndingResult';
 
-const SAVE_KEY = 'five-continents-save-v3';
+export const SAVE_KEY = 'five-continents-save-v3';
+const dpadBtn = { padding: 0, margin: 0, textAlign: 'center', fontSize: 18, lineHeight: '40px' } as const;
 const VIEW_W = 20;
 const VIEW_H = 13;
 const CANVAS_W = VIEW_W * TILE;
@@ -31,12 +33,12 @@ function load(): G {
   return newGame();
 }
 
-function fmtMoney(man: number): string {
+export function fmtMoney(man: number): string {
   if (man >= 10000) return `${(man / 10000).toFixed(1)}億円`;
   return `${Math.round(man)}万円`;
 }
 
-function fameWord(f: number): string {
+export function fameWord(f: number): string {
   if (f >= 90) return '世界的';
   if (f >= 65) return '世界へ';
   if (f >= 45) return '全国区';
@@ -50,7 +52,7 @@ function stepVista(step: Step | undefined): string | undefined {
   return step.vista;
 }
 
-export function GameScreen() {
+export function GameScreen({ onExitToTitle }: { onExitToTitle: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [g, setG] = useState<G>(load);
   const [scene, setScene] = useState<Step[] | null>(null);
@@ -212,10 +214,41 @@ export function GameScreen() {
     };
   }, []);
 
+  // 1マス移動（キーボードとスマホ用十字ボタンの共通ロジック）
+  const movePlayer = useCallback((dx: number, dy: number, facing: Facing) => {
+    if (sceneRef.current) return;
+    facingRef.current = facing;
+    setG((prev) => {
+      // ---- 屋内の移動 ----
+      if (prev.inside) {
+        const b = MAPS[prev.map]?.buildings.find((bb) => bb.id === prev.inside!.id);
+        const room = b?.interior?.(prev);
+        if (!b || !room) return prev;
+        const nx = prev.inside.x + dx, ny = prev.inside.y + dy;
+        if (!interiorWalkable(room, nx, ny)) return prev;
+        stepFrameRef.current = (stepFrameRef.current + 1) % 2;
+        // 出口タイルを踏んだら自動で外へ（ポケモンのドア文法）
+        if (nx === room.exit.x && ny === room.exit.y) {
+          return { ...prev, inside: undefined };
+        }
+        return { ...prev, inside: { id: prev.inside.id, x: nx, y: ny } };
+      }
+      // ---- 屋外の移動（NPC衝突判定つき） ----
+      const m = MAPS[prev.map];
+      const nx = prev.x + dx, ny = prev.y + dy;
+      if (!walkable(m, nx, ny)) return prev;
+      const blockedByNpc = m.npcs.some((n) => (!n.条件 || n.条件(prev)) && n.x === nx && n.y === ny);
+      if (blockedByNpc) return prev;
+      stepFrameRef.current = (stepFrameRef.current + 1) % 2;
+      return { ...prev, x: nx, y: ny };
+    });
+  }, []);
+  const moveRef = useRef(movePlayer);
+  moveRef.current = movePlayer;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); interactRef.current(); return; }
-      if (sceneRef.current) return;
       const mv: Record<string, [number, number, Facing]> = {
         ArrowUp: [0, -1, 'up'], w: [0, -1, 'up'],
         ArrowDown: [0, 1, 'down'], s: [0, 1, 'down'],
@@ -225,32 +258,7 @@ export function GameScreen() {
       const d = mv[e.key];
       if (!d) return;
       e.preventDefault();
-      facingRef.current = d[2];
-
-      setG((prev) => {
-        // ---- 屋内の移動 ----
-        if (prev.inside) {
-          const b = MAPS[prev.map]?.buildings.find((bb) => bb.id === prev.inside!.id);
-          const room = b?.interior?.(prev);
-          if (!b || !room) return prev;
-          const nx = prev.inside.x + d[0], ny = prev.inside.y + d[1];
-          if (!interiorWalkable(room, nx, ny)) return prev;
-          stepFrameRef.current = (stepFrameRef.current + 1) % 2;
-          // 出口タイルを踏んだら自動で外へ（ポケモンのドア文法）
-          if (nx === room.exit.x && ny === room.exit.y) {
-            return { ...prev, inside: undefined };
-          }
-          return { ...prev, inside: { id: prev.inside.id, x: nx, y: ny } };
-        }
-        // ---- 屋外の移動（NPC衝突判定つき） ----
-        const m = MAPS[prev.map];
-        const nx = prev.x + d[0], ny = prev.y + d[1];
-        if (!walkable(m, nx, ny)) return prev;
-        const blockedByNpc = m.npcs.some((n) => (!n.条件 || n.条件(prev)) && n.x === nx && n.y === ny);
-        if (blockedByNpc) return prev;
-        stepFrameRef.current = (stepFrameRef.current + 1) % 2;
-        return { ...prev, x: nx, y: ny };
-      });
+      moveRef.current(d[0], d[1], d[2]);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -325,6 +333,10 @@ export function GameScreen() {
   const progress = `${g.大陸.length}/5`;
   const chapter = map.名前;
 
+  if (!scene && g.stage >= 99) {
+    return <EndingResult g={g} onExitToTitle={onExitToTitle} />;
+  }
+
   return (
     <div>
       {/* HUD */}
@@ -367,6 +379,30 @@ export function GameScreen() {
             ? '矢印/WASDで歩く・カウンターでEnter・出口で外へ'
             : onPortalOrDoor ? 'Enter / クリックで 調べる・入る' : '矢印キー / WASD で移動'}
         </p>
+      )}
+
+      {/* タッチ操作（スマホ用の十字キー＋調べるボタン。PCでもクリックで使える） */}
+      {!activeVista && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '10px 4px 0', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 44px)', gridTemplateRows: 'repeat(3, 44px)', gap: 2 }}>
+            <span />
+            <button className="lq-btn" style={dpadBtn} onClick={() => movePlayer(0, -1, 'up')}>▲</button>
+            <span />
+            <button className="lq-btn" style={dpadBtn} onClick={() => movePlayer(-1, 0, 'left')}>◀</button>
+            <span />
+            <button className="lq-btn" style={dpadBtn} onClick={() => movePlayer(1, 0, 'right')}>▶</button>
+            <span />
+            <button className="lq-btn" style={dpadBtn} onClick={() => movePlayer(0, 1, 'down')}>▼</button>
+            <span />
+          </div>
+          <button
+            className="lq-btn"
+            style={{ width: 72, height: 72, borderRadius: '50%', fontSize: 14, padding: 0 }}
+            onClick={interact}
+          >
+            調べる
+          </button>
+        </div>
       )}
 
       {/* 会話ウィンドウ */}

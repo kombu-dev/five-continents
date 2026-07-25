@@ -330,11 +330,13 @@ export function drawTiles(
 
 // ==================== 建物内部（v0.3） ====================
 
-/** 内部の部屋を描く。canvasの左上(originX,originY)から interior.w×interior.h タイル分 */
+/** 内部の部屋を描く。canvasの左上(originX,originY)から interior.w×interior.h タイル分
+ * v0.4：床を市松模様に、壁に鏡板の質感、カウンター奥にラグ、背面の壁に装飾アイコンを追加。 */
 export function drawInterior(
   ctx: CanvasRenderingContext2D, interior: Interior, style: BuildingStyle, originX: number, originY: number,
 ): void {
   const d = decorOf(style);
+  const attX = interior.attendant?.x;
   for (let y = 0; y < interior.h; y++) {
     for (let x = 0; x < interior.w; x++) {
       const px = originX + x * T, py = originY + y * T;
@@ -345,8 +347,17 @@ export function drawInterior(
         ctx.fillRect(px, py, T, T);
         ctx.fillStyle = 'rgba(0,0,0,0.15)';
         ctx.fillRect(px, py, T, 4);
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 1; // 鏡板の縦線
+        ctx.beginPath(); ctx.moveTo(px + T * 0.3, py + 4); ctx.lineTo(px + T * 0.3, py + T);
+        ctx.moveTo(px + T * 0.7, py + 4); ctx.lineTo(px + T * 0.7, py + T);
+        ctx.stroke();
+        if (y === 0 && attX !== undefined && x === attX) {
+          ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(d.deco, px + T / 2, py + T * 0.6);
+        }
       } else {
-        ctx.fillStyle = d.floor;
+        const checker = (x + y) % 2 === 0;
+        ctx.fillStyle = checker ? d.floor : d.accent;
         ctx.fillRect(px, py, T, T);
         ctx.strokeStyle = 'rgba(0,0,0,0.06)'; ctx.lineWidth = 1;
         ctx.strokeRect(px + 0.5, py + 0.5, T - 1, T - 1);
@@ -359,10 +370,22 @@ export function drawInterior(
       }
     }
   }
-  // 家具（装飾のみ）
-  ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  // ラグ（カウンター手前・接客がある部屋だけ）
+  if (interior.attendant) {
+    const rx = originX + (interior.attendant.x - 1) * T + 3, ry = originY + (interior.attendant.y + 1) * T + 4;
+    ctx.fillStyle = d.rug;
+    ctx.fillRect(rx, ry, T * 3 - 6, T - 6);
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1;
+    ctx.strokeRect(rx + 0.5, ry + 0.5, T * 3 - 7, T - 7);
+  }
+  // 家具（装飾のみ・足元に薄い影を落として立体感を出す）
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const f of interior.furniture) {
-    ctx.fillText(f.icon, originX + (f.x + 0.5) * T, originY + (f.y + 0.55) * T);
+    const cx = originX + (f.x + 0.5) * T, cy = originY + (f.y + 0.55) * T;
+    ctx.fillStyle = 'rgba(0,0,0,0.16)';
+    ctx.beginPath(); ctx.ellipse(cx, cy + T * 0.28, T * 0.28, T * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.font = '20px sans-serif';
+    ctx.fillText(f.icon, cx, cy);
   }
   // カウンター（attendantがいる場合、そこに机を描く）
   if (interior.attendant) {
@@ -371,6 +394,8 @@ export function drawInterior(
     ctx.fillRect(px + 2, py + T * 0.55, T - 4, T * 0.4);
     ctx.strokeStyle = TILE_COL.ink; ctx.lineWidth = 1;
     ctx.strokeRect(px + 2, py + T * 0.55, T - 4, T * 0.4);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(px + 3, py + T * 0.55, T - 6, 2);
   }
 }
 
@@ -470,11 +495,28 @@ function vistaEnding(ctx: CanvasRenderingContext2D, w: number, h: number, time: 
   ctx.fillRect(0, h * 0.86, w, h * 0.14);
 }
 
+/** タイトル画面：夜明けの空＋大きな観覧車一つ＋鳥居のシルエット（大阪から始まる物語） */
+function vistaTitle(ctx: CanvasRenderingContext2D, w: number, h: number, time: number): void {
+  sky(ctx, w, h, '#fbe6a8', '#f0985c');
+  ctx.fillStyle = '#fff2c4';
+  ctx.beginPath(); ctx.arc(w * 0.5, h * 0.38, 40, 0, Math.PI * 2); ctx.fill();
+  drawFerrisWheel(ctx, w * 0.68, h * 0.76, 76, time);
+  ctx.fillStyle = '#7a3a2a'; // 鳥居（左手前のシルエット）
+  ctx.fillRect(w * 0.12, h * 0.62, 5, h * 0.2);
+  ctx.fillRect(w * 0.12 + 26, h * 0.62, 5, h * 0.2);
+  ctx.fillRect(w * 0.12 - 6, h * 0.58, 43, 6);
+  ctx.fillRect(w * 0.12, h * 0.68, 31, 5);
+  ctx.fillStyle = '#241830';
+  ctx.fillRect(0, h * 0.88, w, h * 0.12);
+  silhouettePeople(ctx, w, h * 0.88, 6, '#150e18');
+}
+
 const VISTAS: Record<string, (ctx: CanvasRenderingContext2D, w: number, h: number, time: number) => void> = {
   ceremony: vistaCeremony,
   contract: (ctx, w, h) => vistaContract(ctx, w, h),
   workshop: vistaWorkshop,
   ending: vistaEnding,
+  title: vistaTitle,
 };
 
 /** 一枚絵カットインを描く（存在しないidなら何もしない） */
