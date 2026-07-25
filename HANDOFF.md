@@ -1,6 +1,9 @@
 # 引き継ぎ書 — 五大陸テーマパーク物語
 
-最終更新: 2026-07-25／v0.4（未コミット）／ブランチ: `master`
+最終更新: 2026-07-25／v0.4／ブランチ: `main`
+
+**公開URL: https://kombu-dev.github.io/five-continents/**（GitHub Pages・`main`へのpushでActionsが自動デプロイ）
+リポジトリ: https://github.com/kombu-dev/five-continents（public）
 
 新しいチャットで作業を再開する人（AIでも人でも）が、このファイル1本で状況を把握し、
 すぐ手を動かせることを目標に書いている。詳しい経緯・決定理由は
@@ -134,14 +137,29 @@ src/ui/
    （現在のコードには残っていない使い捨てスクリプトなので、必要なら書き直すこと）。
 4. 変更後は必ず `npm run build` で型チェック＋ビルドが通ることを確認してからコミットする。
 
+## 公開（v0.4で完了）
+
+- **公開先**: GitHub Pages（https://kombu-dev.github.io/five-continents/）。`main`にpushすると
+  `.github/workflows/deploy.yml`が`npm ci && npm run build`→`actions/upload-pages-artifact`→
+  `actions/deploy-pages`で自動デプロイする。Pagesは`build_type: workflow`で有効化済み（Settings画面での
+  手動設定は不要、`gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`で設定した）。
+- **baseパス**: `vite.config.ts`で`base: process.env.GITHUB_ACTIONS ? '/five-continents/' : '/'`。
+  GitHub Actionsのランナーは`GITHUB_ACTIONS=true`を自動設定するため追加の環境変数設定は不要。
+  リポジトリ名を変える場合はこのパスも合わせて変更すること。
+- **個別データについて**: セーブは`localStorage`のみ（サーバー送信なし）。ブラウザ＝ユーザーの単位で
+  自動的にデータが分離される。バックエンド・ログイン一切不要でwave-journal-appと同じ設計方針。
+- **スマホ対応**: キーボード操作に加え、画面下に十字キー＋「調べる」ボタン（タッチ/クリック両対応）を
+  `GameScreen.tsx`に追加（`movePlayer()`をキー入力とボタンの共通ロジックに抽出）。canvasは
+  `maxWidth:100%`で幅に追従、375px幅でも横スクロールなしを確認済み。
+
 ## 次にやること（Vaultの Tasks と同期）
 
-- [ ] 発注者の再プレイ確認（世界航路が5大陸すべてに通るか、タイトル/クリア画面・建物内部の手触り）
+- [ ] 発注者の再プレイ確認（世界航路が5大陸すべてに通るか、タイトル/クリア画面・建物内部・スマホ操作の手触り）
 - [ ] 失敗・資金難イベント（運営の現実味を増すビート）
 - [ ] 歩行アニメの滑らか化（今はタイル単位のカクカク移動）
 - [ ] 回想モード（一度見たエンディングを見返せる）
 
-v0.4で完了: タイトル画面／建物内部の見た目強化（4隅家具・床市松・ラグ・壁装飾）／クリア画面（エンディング結果画面）。
+v0.4で完了: タイトル画面／建物内部の見た目強化（4隅家具・床市松・ラグ・壁装飾）／クリア画面（エンディング結果画面）／GitHub Pagesでの公開／スマホ操作対応。
 
 ## 外部脳（Vault）との関係
 
