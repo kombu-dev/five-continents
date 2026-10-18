@@ -1,0 +1,8 @@
+// 本体を Cloudflare Workers（静的アセットのみ）で公開する。GitHub Pages も引き続き動く（.github/workflows/deploy.yml）。
+// ゲームの進み具合は遊ぶ人それぞれの端末（ブラウザ）に保存する作り。サーバーには何も保存しない。
+{
+  "name": "five-continents",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "assets": { "directory": "./dist" }
+}

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:cf": "npm run build && npx --yes wrangler@4.129.1 deploy"
   },
   "dependencies": {
     "react": "^18.3.1",
