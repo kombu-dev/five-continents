@@ -163,7 +163,7 @@ v0.4で完了: タイトル画面／建物内部の見た目強化（4隅家具�
 
 ## 外部脳（Vault）との関係
 
-このフォルダの親（`新たなる開発withclaude/`）には`Obsidian Vault/`という複数AI共有の
+このフォルダの親（`projects/`）には`Obsidian Vault/`という複数AI共有の
 外部脳がある。作業開始時は`Obsidian Vault/CLAUDE.md`（憲法）→
 `Obsidian Vault/Profile/Current State.md`→`Obsidian Vault/Projects/五大陸テーマパーク物語.md`
 の順で読むこと。重要な決定・ミス・教訓はコード側でなくこのVaultノートのDecision Logに追記する。
