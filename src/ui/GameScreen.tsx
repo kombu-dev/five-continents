@@ -47,6 +47,17 @@ export function fameWord(f: number): string {
   return '無名';
 }
 
+/** steps[i] が lazy の段なら、g で中身を決めて差し替えた新しい配列を返す（lazy でなければ同じ配列） */
+function expandLazy(steps: Step[], i: number, g: G): Step[] {
+  let out = steps;
+  for (let guard = 0; guard < 8; guard++) {
+    const s = out[i];
+    if (!s || !('lazy' in s)) return out;
+    out = [...out.slice(0, i), ...s.lazy(g), ...out.slice(i + 1)];
+  }
+  return out;
+}
+
 function stepVista(step: Step | undefined): string | undefined {
   if (!step) return undefined;
   return step.vista;
@@ -102,7 +113,9 @@ export function GameScreen({ onExitToTitle }: { onExitToTitle: () => void }) {
     setG((prev) => { const c = JSON.parse(JSON.stringify(prev)) as G; fn(c); return c; });
   }, []);
 
-  const openScene = useCallback((steps: Step[]) => {
+  const openScene = useCallback((steps0: Step[]) => {
+    const steps = expandLazy(steps0, 0, gRef.current);
+    if (steps.length === 0) { setScene(null); return; }
     appliedRef.current = new Set();
     setScene(steps);
     setIdx(0);
@@ -116,8 +129,11 @@ export function GameScreen({ onExitToTitle }: { onExitToTitle: () => void }) {
     if (cur && 'choices' in cur) return;
     se.blip();
     const next = idx + 1;
-    if (next >= scene.length) { setScene(null); return; }
-    const step = scene[next];
+    // 到達した段が lazy なら、今の状態（直前の選択の効果まで反映済み）で中身を決めて差し替える
+    const sc = expandLazy(scene, next, gRef.current);
+    if (sc !== scene) setScene(sc);
+    if (next >= sc.length) { setScene(null); return; }
+    const step = sc[next];
     if (step && 'text' in step && step.effect && !appliedRef.current.has(next)) {
       appliedRef.current.add(next);
       apply(step.effect);
@@ -133,7 +149,10 @@ export function GameScreen({ onExitToTitle }: { onExitToTitle: () => void }) {
     const c = cur.choices[ci];
     if (c.effect) apply(c.effect);
     const rest = scene.slice(idx + 1);
-    const merged = [...(c.steps ?? []), ...rest];
+    // c.effect は setG 経由で非同期に入るので、lazy 判定用の状態には先に重ねておく
+    let gNow = gRef.current;
+    if (c.effect) { gNow = JSON.parse(JSON.stringify(gNow)) as G; c.effect(gNow); }
+    const merged = expandLazy([...(c.steps ?? []), ...rest], 0, gNow);
     if (merged.length === 0) { setScene(null); return; }
     appliedRef.current = new Set();
     setScene(merged);

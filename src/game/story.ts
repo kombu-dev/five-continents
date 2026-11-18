@@ -206,12 +206,23 @@ function trail(g: G): Step[] {
   return trailLines(g).map((s) => t(`・${s}`, undefined, undefined, 'ending'));
 }
 
+/**
+ * エンディングの判定（上から順に見る）。
+ * v0.5：以前は「調和」が最後の受け皿だったが、岬の採用/見送りとオセアニアの選択で
+ * 必ず「家族」か「独行」に決まってしまい、調和に届く道が無かった。
+ * 信念と実利が完全に釣り合った人へのご褒美として、偏りの判定の次に調和を見る。
+ */
+export function endingName(g: G): string {
+  if (g.実利 - g.信念 >= 3) return '帝国';
+  if (g.信念 - g.実利 >= 3) return '巡礼';
+  if (g.信念 === g.実利) return '調和';
+  if (g.仲間.includes('岬') && has(g, '委譲')) return '家族';
+  if (has(g, '岬不在') || has(g, '現場主義')) return '独行';
+  return '調和';
+}
+
 function endingScene(g: G): Step[] {
-  let 名 = '調和';
-  if (g.実利 - g.信念 >= 3) 名 = '帝国';
-  else if (g.信念 - g.実利 >= 3) 名 = '巡礼';
-  else if (g.仲間.includes('岬') && has(g, '委譲')) 名 = '家族';
-  else if (has(g, '岬不在') || has(g, '現場主義')) 名 = '独行';
+  const 名 = endingName(g);
 
   const fix = (s: G) => { s.ending = 名; s.評判 = 100; if (!s.大陸.includes('アフリカ')) s.大陸.push('アフリカ'); s.stage = 99; };
 
@@ -842,7 +853,8 @@ export function sceneFor(id: string, g: G): Step[] | null {
           },
           t('——「ワンダー環・アフリカ」開業。', undefined, undefined, 'ceremony'),
           t('五つの大陸に、灯りが点いた。', undefined, undefined, 'ceremony'),
-          ...endingScene(g),
+          // v0.5：設計会議と最後の問いの答えまで反映してから判定する（以前は話しかけた時点で決まっていた）
+          { lazy: (s: G) => endingScene(s) },
         ];
       }
       if (g.stage >= 14) return [t('まだ早いわ。他の大陸を灯しておいで。', 'アマラ')];

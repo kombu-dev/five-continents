@@ -32,7 +32,10 @@ export type Effect = (g: G) => void;
  * vista＝そのステップの間、フィールドの代わりに「寄り」の一枚絵を表示（開業式典・契約など） */
 export type Step =
   | { speaker?: string; text: string; effect?: Effect; vista?: string }
-  | { choices: { label: string; steps?: Step[]; effect?: Effect }[]; vista?: string };
+  | { choices: { label: string; steps?: Step[]; effect?: Effect }[]; vista?: string }
+  /** v0.5：その段に来た瞬間の状態で中身を決める段（エンディング判定など、直前の選択を反映させたいとき）。
+   * 画面には出ず、GameScreen が到達時に lazy(g) の結果へ差し替える */
+  | { lazy: (g: G) => Step[]; vista?: string };
 
 /** 建物の描画スタイル（v0.2）。屋根色・窓・付帯物が変わる */
 export type BuildingStyle =
